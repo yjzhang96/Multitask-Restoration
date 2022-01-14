@@ -1,0 +1,62 @@
+---
+dataset_mode: mix
+
+checkpoints: './checkpoints/MPR_naive'
+model_name: &MODEL_NAME MPR_mix
+MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
+model_class: MPRnet
+resume_train: False 
+which_epoch: latest
+start_epoch: 0
+save_epoch: 2
+display_freq: 2
+val_freq: 4
+crop_size: 256
+gpu: [0,1]
+input_nc: 3
+output_nc: 3
+init_type: xavier
+init_gain: 0.02
+epoch: 1000
+batch_size: 4
+is_training: true
+iteration_G: 1
+load_only_G: false
+
+train:
+  lr_G: 0.0001
+  beta1: 0.9
+  optimizer: adam
+  scheduler: linear
+  train_dir_blur: '/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/train' # path to training data
+  train_dir_rain: '/yzha0535/proj/datasets/derain_datasets/Derain_whole/train' 
+  
+
+val:
+  val_batch_size: 1
+  verbose: False
+  val_dir_blur: '/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/val'    # path to validation data
+  val_dir_rain: '/yzha0535/proj/datasets/derain_datasets/Derain_whole/test/Rain100L'    
+
+
+model:
+  g_name: MPRnet
+  d_name: Offset
+  use_sigmoid: 0
+  norm: 
+
+test:
+  result_dir: ./exp_results
+  save_dir: *MODEL_NAME
+  verbose: True
+  test_batch_size: 1
+  which_epoch: latest
+  dataset_mode: pair
+  blur_videos: /home/yjz/datasets/Gopro_1080p/test/**/blur/*.png
+  deblur_videos: /home/yjz/datasets/Gopro_1080p/test/**/sharp/*.png
+  real_blur_videos: /home/yjz/datasets/S10_blur_set/train/**/*.png
+
+
+
+
+
