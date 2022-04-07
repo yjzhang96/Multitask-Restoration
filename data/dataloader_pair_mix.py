@@ -175,14 +175,16 @@ class BlurryVideo(data.Dataset):
         # frame in `root`.
         self.config = config
         if train:
-            dataset_dirs = [config['train']['train_dir_blur'],config['train']['train_dir_rain']]
+            dataset_dirs = [config['train']['train_dir_blur'],config['train']['train_dir_rain'],
+                            config['train']['train_dir_noise']]
         else:
             if config['is_training']:
                 ## validation
-                dataset_dirs = [config['val']['val_dir_blur'],config['val']['val_dir_rain']]
+                dataset_dirs = [config['val']['val_dir_blur'],config['val']['val_dir_rain'],
+                                config['val']['val_dir_noise']]
             else:
                 ## test
-                dataset_dirs = [config['test']['test_dir_blur'],config['test']['test_dir_rain']]
+                dataset_dirs = [config['test']['test_dir']]
 
         self.input_dir = dataset_dirs
         framesPath = _make_dataset(dataset_dirs,config)

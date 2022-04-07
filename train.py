@@ -9,27 +9,30 @@ import torchvision.transforms as transforms
 import torch.optim as optim 
 import torch.nn as nn
 import torch.nn.functional as F 
-import numpy as np 
-
 from torch.utils.data import DataLoader
+import numpy as np 
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+dist.init_process_group(backend="nccl")
+
 from data import dataloader_pair,dataloader_pair_mix
-
-
 from models import model_MPRnet
 from utils import utils 
 from tensorboardX import SummaryWriter
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", type=str, default='./checkpoints/config.yaml')
+parser.add_argument("--local_rank", type=int, help="")
 args = parser.parse_args()
 
 with open(args.config_file,'r') as f:
     config = yaml.load(f)
     for key,value in config.items():
         print('%s:%s'%(key,value))
-### make saving dir
 
+### make saving dir
 if not os.path.exists(config['checkpoints']):
     os.mkdir(config['checkpoints'])
 model_save_dir = os.path.join(config['checkpoints'],config['model_name']) 
@@ -37,14 +40,6 @@ if not os.path.exists(model_save_dir):
     os.mkdir(model_save_dir)
 os.system('cp %s %s'%(args.config_file, model_save_dir))
 
-
-### initialize model
-if config['model_class'] == "MPRnet":
-    Model = model_MPRnet
-    os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
-
-else:
-    raise ValueError("Model class [%s] not recognized." % config['model_class'])
 
 
 ### load datasets
@@ -62,17 +57,27 @@ elif config['dataset_mode'] == 'mix':
     train_dataset = dataloader_pair_mix.BlurryVideo(config, train= True)
     train_dataloader = DataLoader(train_dataset,
                                     batch_size=config['batch_size'],
-                                    shuffle = True,
+                                    sampler=DistributedSampler(train_dataset),
                                     num_workers=16)
     val_dataset = dataloader_pair_mix.BlurryVideo(config, train= False)
     val_dataloader = DataLoader(val_dataset,
                                     batch_size=config['val']['val_batch_size'],
-                                    shuffle = True)
+                                    sampler=DistributedSampler(val_dataset))
 else:
     raise ValueError("dataset_mode [%s] not recognized." % config['dataset_mode'])
 print("train_dataset:",train_dataset)
 print("val_dataset",val_dataset)
-###Create transform to display image from tensor
+
+
+### initialize model
+if config['model_class'] == "MPRnet":
+    Model = model_MPRnet
+    os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
+
+else:
+    raise ValueError("Model class [%s] not recognized." % config['model_class'])
+
+
 
 
 ###Utils
@@ -103,10 +108,10 @@ else:
     os.system('rm %s/%s/psnr_log.txt'%(config['checkpoints'], config['model_name']))
     # os.system('rm %s/%s/loss_log.txt'%(config['checkpoints'], config['model_name']))
     os.system('rm %s/%s/event*'%(config['checkpoints'], config['model_name']))
+
+
 # init model
 model = Model.RestoreNet(config)
-if config['resume_train']:
-    model.load(config)
 
 # tensorboard writter
 writer = SummaryWriter(model_save_dir)
@@ -144,8 +149,8 @@ def validation_pair(epoch):
     return psnr_tot/cnt
 
 # training
-# val_restore_psnr = validation_pair(config['start_epoch'])
-# writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
+val_restore_psnr = validation_pair(config['start_epoch'])
+writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
 
 best_psnr = 0.0
 for epoch in range(config['start_epoch'], config['epoch']):

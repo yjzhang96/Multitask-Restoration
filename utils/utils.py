@@ -58,28 +58,28 @@ def save_test_images(config, save_dir, results, image_path):
     B_path = image_path['B_path'][0]
     # import ipdb; ipdb.set_trace()
     # save_dir = os.path.join(config['result_dir'],config['model_name']) 
-    others, B_name = os.path.split(B_path)
-    if os.path.split(others)[-1] == 'blur':
-        video_name = others.split('/')[-2]
+    path_root, B_name = os.path.split(B_path)
+
+
+    if os.path.split(path_root)[-1] == 'input':
+        video_name = path_root.split('/')[-2]
     else:
-        video_name = os.path.split(others)[-1]
+        video_name = os.path.split(path_root)[-1]
 
 
     video_dir = os.path.join(save_dir, video_name)
     if not os.path.exists(video_dir):
-        os.mkdir(video_dir)
+        os.makedirs(video_dir,exist_ok=True)
     
     frame_index_B = B_name.split('.')[0]
 
     # save image to corespound path
-    save_B_path = os.path.join(video_dir,"%s_real_B.png"%(frame_index_B))
-    # save_S_path = os.path.join(video_dir,"%s_real_S.png"%(frame_index_B))
-    save_fakeS_path = os.path.join(video_dir,"%s_fake_S.png"%(frame_index_B))
-    # save_fakeB_path = os.path.join(video_dir,"%s_fake_B.png"%(frame_index_B))
-    save_image(results['real_B'],save_B_path)
-    # save_image(results['real_S'],save_S_path)
-    save_image(results['fake_S'],save_fakeS_path)
-    # save_image(results['fake_B'],save_fakeB_path)
+    save_B_path = os.path.join(video_dir,"%s_input.png"%(frame_index_B))
+    save_S_path = os.path.join(video_dir,"%s_target.png"%(frame_index_B))
+    save_fakeS_path = os.path.join(video_dir,"%s_restored.png"%(frame_index_B))
+    save_image(results['input'],save_B_path)
+    save_image(results['target'],save_S_path)
+    save_image(results['restored'],save_fakeS_path)
 
 def save_heat_bmap(bmap, image_path):
     heatmap = bmap2heat(bmap)

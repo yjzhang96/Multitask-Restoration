@@ -16,11 +16,17 @@ from ipdb import set_trace as stc
 class RestoreNet():
     def __init__(self, config):
         self.config = config
-        if config['gpu']:
-            self.device = torch.device('cuda:{}'.format(config['gpu'][0]))
-            torch.cuda.set_device(self.device)
-        else:
-            self.device = torch.device('cpu')
+        # if config['gpu']:
+        #     self.device = torch.device('cuda:{}'.format(config['gpu'][0]))
+        #     torch.cuda.set_device(self.device)
+        # else:
+        #     self.device = torch.device('cpu')
+        
+        ## configure multi-process GPU
+        local_rank = torch.distributed.get_rank()%2
+        print('local rank:',local_rank)
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda",local_rank)
 
         ### initial model
         self.net_G = networks.define_net_G(config)
@@ -35,11 +41,21 @@ class RestoreNet():
         if config['is_training']:
             self.optimizer_G = torch.optim.Adam( self.net_G.parameters(), lr=config['train']['lr_G'], betas=(0.9, 0.999) )
             
-        if config['resume_train']:
-            print("------loading learning rate------")
-    
-            self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
-
+        if config['resume_train'] or not config['is_training']:
+            self.load(config)
+            if config['resume_train']:
+                print("------loading learning rate------")
+                self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
+        
+        self.net_G.to(device)
+        if torch.cuda.device_count()>1:
+            print("let's use", torch.cuda.device_count(),"GPUs!")
+            self.net_G = torch.nn.parallel.DistributedDataParallel(
+                self.net_G,
+                device_ids=[local_rank],
+                output_device=local_rank,
+                find_unused_parameters=True
+            )
 
     def set_input(self,batch_data):
         # self.input = batch_data['INPUT'].to(self.device)
@@ -106,10 +122,10 @@ class RestoreNet():
         load_path = os.path.join(config['checkpoints'], config['model_name'])
         load_G_file = load_path + '/' + 'G_net_%s.pth'%config['which_epoch']
         
-        if len(self.config['gpu'])>1:
-            self.net_G.module.load_state_dict(torch.load(load_G_file))
-        else:
-            self.net_G.load_state_dict(torch.load(load_G_file))
+        # if len(self.config['gpu'])>1:
+        #     self.net_G.load_state_dict(torch.load(load_G_file))
+        # else:
+        self.net_G.load_state_dict(torch.load(load_G_file))
         print('--------load model %s success!-------'%load_G_file)
 
 

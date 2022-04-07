@@ -8,8 +8,8 @@ model_class: MPRnet
 resume_train: False 
 which_epoch: latest
 start_epoch: 0
-save_epoch: 2
-display_freq: 2
+save_epoch: 50
+display_freq: 100
 val_freq: 4
 crop_size: 256
 gpu: [0,1]
@@ -18,7 +18,7 @@ output_nc: 3
 init_type: xavier
 init_gain: 0.02
 epoch: 1000
-batch_size: 4
+batch_size: 3
 is_training: true
 iteration_G: 1
 load_only_G: false
@@ -28,15 +28,17 @@ train:
   beta1: 0.9
   optimizer: adam
   scheduler: linear
-  train_dir_blur: '/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/train' # path to training data
-  train_dir_rain: '/yzha0535/proj/datasets/derain_datasets/Derain_whole/train' 
+  train_dir_blur: '/home/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/train' # path to training data
+  train_dir_rain: '/home/yzha0535/proj/datasets/derain_datasets/Derain_whole/train' 
+  train_dir_noise: '/home/yzha0535/proj/datasets/denoise_datasets/Denoise_whole/train' 
   
 
 val:
   val_batch_size: 1
   verbose: False
-  val_dir_blur: '/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/val'    # path to validation data
-  val_dir_rain: '/yzha0535/proj/datasets/derain_datasets/Derain_whole/test/Rain100L'    
+  val_dir_blur: '/home/yzha0535/proj/datasets/deblur_datasets/Deblur_whole/val'    # path to validation data
+  val_dir_rain: '/home/yzha0535/proj/datasets/derain_datasets/Derain_whole/test/Rain100L'    
+  val_dir_noise: '/home/yzha0535/proj/datasets/denoise_datasets/Denoise_whole/test'    
 
 
 model:
