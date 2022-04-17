@@ -4,9 +4,12 @@ import os
 import os.path
 from glob import glob
 import random
+import numpy as np
+import torch
 import torchvision.transforms as transforms
+import torchvision.transforms.functional as TF
 
-def _make_dataset(blurry_dir,deblur_dir,config):
+def _make_dataset(input_dir,target_dir):
     """
     Creates a 2D list of all the frames in N clips containing
     M frames each.
@@ -32,9 +35,9 @@ def _make_dataset(blurry_dir,deblur_dir,config):
     # framesPath = []
     # # Find and loop over all the clips in root `dir`.
     # count = 0
-    # for index, folder in enumerate(os.listdir(blurry_dir)):
-    #     BlurryFolderPath = os.path.join(blurry_dir, folder)
-    #     SharpFolderPath = os.path.join(deblur_dir, folder)
+    # for index, folder in enumerate(os.listdir(input_dir)):
+    #     BlurryFolderPath = os.path.join(input_dir, folder)
+    #     SharpFolderPath = os.path.join(target_dir, folder)
 
     #     # Skip items which are not folders.
     #     if not (os.path.isdir(BlurryFolderPath)):
@@ -42,10 +45,10 @@ def _make_dataset(blurry_dir,deblur_dir,config):
     #     BlurryFramePath = sorted(os.listdir(BlurryFolderPath))
     #     for frame_index in range(len(BlurryFramePath)):
     #         framesPath.append({})
-    #         framesPath[count]['B'] = os.path.join(BlurryFolderPath,BlurryFramePath[frame_index])
+    #         framesPath[count]['LQ'] = os.path.join(BlurryFolderPath,BlurryFramePath[frame_index])
     #         num_frame_B = int(BlurryFramePath[frame_index].split('.')[0])
 
-    #         framesPath[count]['S'] = os.path.join(SharpFolderPath,"%06d.png"%(num_frame_B))
+    #         framesPath[count]['HQ'] = os.path.join(SharpFolderPath,"%06d.png"%(num_frame_B))
     #         count += 1
     # return framesPath
     
@@ -53,14 +56,14 @@ def _make_dataset(blurry_dir,deblur_dir,config):
     framesPath = []
     # Find and loop over all the clips in root `dir`.
     count = 0
-    blurry_img_paths = sorted(glob(blurry_dir, recursive=True))
-    deblur_img_paths = sorted(glob(deblur_dir, recursive=True))
-    assert len(blurry_img_paths) == len(deblur_img_paths)
-    for index in range(len(blurry_img_paths)):
+    input_img_paths = sorted(glob(os.path.join(input_dir,'*.png'), recursive=True))
+    target_img_paths = sorted(glob(os.path.join(target_dir,'*.png'), recursive=True))
+    assert len(input_img_paths) == len(target_img_paths)
+    for index in range(len(input_img_paths)):
         
         framesPath.append({})
-        framesPath[count]['B'] = blurry_img_paths[index]
-        framesPath[count]['S'] = deblur_img_paths[index]
+        framesPath[count]['input'] = input_img_paths[index]
+        framesPath[count]['target'] = target_img_paths[index]
         count += 1
     return framesPath
 
@@ -99,32 +102,8 @@ def _pil_loader(path, cropArea=None, resizeDim=None, frameFlip=0):
         return flipped_img.convert('RGB')
     
     
-class BlurryVideo(data.Dataset):
+class RestoreDataset(data.Dataset):
     """
-    A dataloader for loading N samples arranged in this way:
-
-        |-- video0
-            |-- frameB0 frameB1 -- frameB0_S frameB0_E frameB1_S frameB1_E
-            |-- frame01
-            :
-            |-- framexx
-            |-- frame12
-        |-- clip1
-            |-- frame00
-            |-- frame01
-            :
-            |-- frame11
-            |-- frame12
-        :
-        :
-        |-- clipN
-            |-- frame00
-            |-- frame01
-            :
-            |-- frame11
-            |-- frame12
-
-    ...
 
     Attributes
     ----------
@@ -142,57 +121,43 @@ class BlurryVideo(data.Dataset):
     """
 
 
-    def __init__(self, config, train):
-        """
-        Parameters
-        ----------
-            root : string
-                Root directory path.
-            transform : callable, configional
-                A function/transform that takes in
-                a sample and returns a transformed version.
-                E.g, ``transforms.RandomCrop`` for images.
-            dim : tuple, configional
-                Dimensions of images in dataset. Default: (640, 360)
-            randomCropSize : tuple, configional
-                Dimensions of random crop to be applied. Default: (352, 352)
-            train : boolean, configional
-                Specifies if the dataset is for training or testing/validation.
-                `True` returns samples with data augmentation like random 
-                flipping, random cropping, etc. while `False` returns the
-                samples without randomization. Default: True
-        """
-
-
-        # Populate the list with image paths for all the
-        # frame in `root`.
-        self.config = config
-        if train:
-            self.blurry_dir = config['train']['blur_videos']
-            self.deblur_dir = config['train']['deblur_videos']
-        else:
-            if config['is_training']:
-                self.blurry_dir = config['val']['blur_videos']
-                self.deblur_dir = config['val']['deblur_videos']
-            else:
-                self.blurry_dir = config['test']['blur_videos']
-                self.deblur_dir = config['test']['deblur_videos']
-
-           
-        framesPath = _make_dataset(self.blurry_dir,self.deblur_dir,config)
+    def __init__(self, dataroot, degrade_type=None, patch_size=16, phase='train', data_len=-1):
+        self.dataroot = dataroot
+        self.degrade_type = degrade_type
+        self.patch_size = patch_size
+        self.data_len = data_len
+        self.phase = phase
+        input_dir = os.path.join(dataroot,'input')
+        target_dir = os.path.join(dataroot,'target')
+        framesPath = _make_dataset(input_dir,target_dir)
         # Raise error if no images found in root.
-        if len(framesPath) == 0:
+        self.dataset_len = len(framesPath)
+        if self.dataset_len == 0:
             raise(RuntimeError("Found 0 files in subfolders of: datasets"))
                 
-        self.dim = (1280,720)
+        if self.data_len <= 0:
+                self.data_len = self.dataset_len
+        else:
+            self.data_len = min(self.data_len, self.dataset_len)
         
         self.framesPath     = framesPath
-        self.train = train
+
+        if degrade_type:
+            if degrade_type == 'blur':
+                self.degrade_index = 0
+            elif degrade_type == 'rain':
+                self.degrade_index = 1
+            elif degrade_type == 'noise':
+                self.degrade_index = 2
+            elif degrade_type == 'lowlight':
+                self.degrade_index = 3
+            else:
+                raise TypeError('degrade type {:s} not found'.format(degrade_type)) 
         # mean = [0.5,0.5,0.5]
         # std = [1,1,1]
         # normalize = transforms.Normalize(mean=mean,
         #                                 std = std)
-        if train:
+        if phase == 'train':
             # random_crop = transforms.RandomCrop(config['crop_size_X'],config['crop_size_Y'])
             self.transform = transforms.Compose([transforms.ToTensor() ])
         else:
@@ -222,41 +187,92 @@ class BlurryVideo(data.Dataset):
 
 
         sample = {}
-        
-        if (self.train):
+        inp_path = self.framesPath[index]['input']
+        tar_path = self.framesPath[index]['target']
+        inp_img = Image.open(inp_path)
+        tar_img = Image.open(tar_path)
+        if (self.phase):
+            ps = self.patch_size
             ### Data Augmentation ###
-            # random scale from 1.0 to 2.0
-            # random_scale = random.random() + 1.0
-            dim = self.dim
-            # import ipdb; ipdb.set_trace()
-            # Apply random crop on the input frames
-            self.cropX0         = dim[0] - self.config['crop_size_X']
-            self.cropY0         = dim[1] - self.config['crop_size_Y']
-            cropX = random.randint(0, self.cropX0)
-            cropY = random.randint(0, self.cropY0)
-            cropArea = (cropX, cropY, cropX + self.config['crop_size_X'], cropY + self.config['crop_size_Y'])
-
-                
-            # Random flip frame
-            randomFrameFlip = random.randint(0, 1)
-        else:
-            # Fixed settings to return same samples every epoch.
-            # For validation/test sets.
-            cropArea = None
-            randomFrameFlip = 0
-            dim = self.dim
-        # Loop over for all frames corresponding to the `index`.
-        for key, path in self.framesPath[index].items():
-            # Open image using pil and augment the image.
-            image = _pil_loader(path, cropArea=cropArea, resizeDim=dim ,frameFlip=randomFrameFlip)
             
-            # Apply transformation if specified.
-            if self.transform is not None:
-                image = self.transform(image)
-            sample[key] = image
-        sample['B_path'] = self.framesPath[index]['B']
-        sample['gt'] = True
-        return sample
+            w,h = tar_img.size
+            padw = ps-w if w<ps else 0
+            padh = ps-h if h<ps else 0
+
+            # Reflect Pad in case image is smaller than patch_size
+            if padw!=0 or padh!=0:
+                inp_img = TF.pad(inp_img, (0,0,padw,padh), padding_mode='reflect')
+                tar_img = TF.pad(tar_img, (0,0,padw,padh), padding_mode='reflect')
+
+            aug    = random.randint(0, 2)
+            if aug == 1:
+                inp_img = TF.adjust_gamma(inp_img, 1)
+                tar_img = TF.adjust_gamma(tar_img, 1)
+
+            aug    = random.randint(0, 2)
+            if aug == 1:
+                sat_factor = 1 + (0.2 - 0.4*np.random.rand())
+                inp_img = TF.adjust_saturation(inp_img, sat_factor)
+                tar_img = TF.adjust_saturation(tar_img, sat_factor)
+
+            inp_img = TF.to_tensor(inp_img)
+            tar_img = TF.to_tensor(tar_img)
+
+            hh, ww = tar_img.shape[1], tar_img.shape[2]
+
+            rr     = random.randint(0, hh-ps)
+            cc     = random.randint(0, ww-ps)
+            aug    = random.randint(0, 8)
+
+            # Crop patch
+            inp_img = inp_img[:, rr:rr+ps, cc:cc+ps]
+            tar_img = tar_img[:, rr:rr+ps, cc:cc+ps]
+
+            # Data Augmentations
+            if aug==1:
+                inp_img = inp_img.flip(1)
+                tar_img = tar_img.flip(1)
+            elif aug==2:
+                inp_img = inp_img.flip(2)
+                tar_img = tar_img.flip(2)
+            elif aug==3:
+                inp_img = torch.rot90(inp_img,dims=(1,2))
+                tar_img = torch.rot90(tar_img,dims=(1,2))
+            elif aug==4:
+                inp_img = torch.rot90(inp_img,dims=(1,2), k=2)
+                tar_img = torch.rot90(tar_img,dims=(1,2), k=2)
+            elif aug==5:
+                inp_img = torch.rot90(inp_img,dims=(1,2), k=3)
+                tar_img = torch.rot90(tar_img,dims=(1,2), k=3)
+            elif aug==6:
+                inp_img = torch.rot90(inp_img.flip(1),dims=(1,2))
+                tar_img = torch.rot90(tar_img.flip(1),dims=(1,2))
+            elif aug==7:
+                inp_img = torch.rot90(inp_img.flip(2),dims=(1,2))
+                tar_img = torch.rot90(tar_img.flip(2),dims=(1,2))
+            
+        
+        else:
+            if self.config['is_training']:
+                # Validate on center crop
+                if self.patch_size is not None:
+                    ps = self.patch_size
+                    inp_img = TF.center_crop(inp_img, (ps,ps))
+                    tar_img = TF.center_crop(tar_img, (ps,ps))
+
+                inp_img = TF.to_tensor(inp_img)
+                tar_img = TF.to_tensor(tar_img)
+
+            else:
+                # test
+                inp_img = TF.to_tensor(inp_img)
+                tar_img = TF.to_tensor(tar_img)
+        
+        sample['input'] = inp_img
+        sample['target'] = tar_img
+        sample['B_path'] = self.framesPath[index]['input']
+        sample['index'] = self.degrade_index
+        return sample 
 
 
     def __len__(self):
@@ -270,7 +286,7 @@ class BlurryVideo(data.Dataset):
         """
 
 
-        return len(self.framesPath)
+        return self.data_len
 
     def __repr__(self):
         """
@@ -285,7 +301,7 @@ class BlurryVideo(data.Dataset):
 
         fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
         fmt_str += '    Number of datapoints: {}\n'.format(self.__len__())
-        fmt_str += '    Root Location: {}\n'.format(self.blurry_dir)
+        fmt_str += '    Root Location: {}\n'.format(self.dataroot)
         tmp = '    Transforms (if any): '
         fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
         return fmt_str

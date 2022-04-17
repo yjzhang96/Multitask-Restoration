@@ -16,21 +16,37 @@ from ipdb import set_trace as stc
 class RestoreNet():
     def __init__(self, config):
         self.config = config
-        # if config['gpu']:
-        #     self.device = torch.device('cuda:{}'.format(config['gpu'][0]))
-        #     torch.cuda.set_device(self.device)
-        # else:
-        #     self.device = torch.device('cpu')
         
         ## configure multi-process GPU
-        local_rank = torch.distributed.get_rank()%2
-        print('local rank:',local_rank)
-        torch.cuda.set_device(local_rank)
-        device = torch.device("cuda",local_rank)
+        if config['Distributed']:
+            local_rank = torch.distributed.get_rank()%2
+            print('local rank:',local_rank)
+            torch.cuda.set_device(local_rank)
+            device = torch.device("cuda",local_rank)
+        else:
+            if config['gpu']:
+                device = torch.device('cuda:{}'.format(config['gpu'][0]))
+                torch.cuda.set_device(device)
+            else:
+                device = torch.device('cpu')
 
-        ### initial model
+        ### initial model and model parallel
         self.net_G = networks.define_net_G(config)
-        
+        if config['Distributed'] and torch.cuda.device_count()>1:
+            self.net_G.to(device)
+            print("let's use", torch.cuda.device_count(),"GPUs!")
+            self.net_G = torch.nn.parallel.DistributedDataParallel(
+                self.net_G,
+                device_ids=[local_rank],
+                output_device=local_rank,
+                find_unused_parameters=True
+            )
+        elif not config['Distributed'] and len(config['gpu']) >1:
+            self.net_G.to(device)
+            self.net_G = torch.nn.DataParallel(self.net_G, config['gpu'])
+        else:
+            self.net_G.to(device)
+
         ###Loss and Optimizer
         self.MSE = nn.MSELoss()
         self.L1loss = nn.L1Loss()
@@ -47,30 +63,18 @@ class RestoreNet():
                 print("------loading learning rate------")
                 self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
         
-        self.net_G.to(device)
-        if torch.cuda.device_count()>1:
-            print("let's use", torch.cuda.device_count(),"GPUs!")
-            self.net_G = torch.nn.parallel.DistributedDataParallel(
-                self.net_G,
-                device_ids=[local_rank],
-                output_device=local_rank,
-                find_unused_parameters=True
-            )
+        
+
 
     def set_input(self,batch_data):
         # self.input = batch_data['INPUT'].to(self.device)
         self.input = batch_data['input'].cuda()
-        if batch_data['gt'][0]:
-            self.target_exist = True
-            self.target = batch_data['target'].cuda()
-        else:
-            self.target_exist = False
-            self.target = batch_data['target'].cuda()
+        self.target = batch_data['target'].cuda()
         self.B_path = batch_data['B_path']
-
+        self.index = batch_data['index'].cuda()
 
     def optimize(self):
-        self.restored = self.net_G(self.input)
+        self.restored = self.net_G(self.input, self.index)
 
         
         loss_char_j = [self.criterion_char(self.restored[j],self.target) for j in range(len(self.restored))]
@@ -95,7 +99,7 @@ class RestoreNet():
     def test(self, validation = False):
         with torch.no_grad():
             B,C,H,W = self.target.shape
-            self.restored = self.net_G(self.input)
+            self.restored = self.net_G(self.input,self.index)
             
             
         # calculate PSNR

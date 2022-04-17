@@ -1,11 +1,10 @@
 # ignore checkpoints/
 checkpoints/
-.pyc
+*.pyc
 checkpoints/
 datasets/
 misc/
 *.png
 results/
 exp_results/
-.log
-.pyc
+*.log

@@ -28,17 +28,20 @@ train:
   beta1: 0.9
   optimizer: adam
   scheduler: linear
-  train_dir_blur: '/home/yjz/hdd/deblur_datasets/Deblur_whole/train' # path to training data
-  train_dir_rain: '/home/yjz/hdd/derain_datasets/Derain_whole/train' 
-  train_dir_noise: '/home/yjz/hdd/denoise_datasets/Denoise_whole/train' 
+  dataroot_blur: '/home/yjz/hdd/deblur_datasets/Deblur_whole/train_patch' # path to training data
+  dataroot_rain: '/home/yjz/hdd/derain_datasets/Derain_whole/train_patch' 
+  dataroot_noise: '/home/yjz/hdd/denoise_datasets/Denoise_whole/train_patch' 
+  dataroot_light: '/home/yjz/hdd/lowlight_datasets/Lowlight_whole/train_patch' 
   
 
 val:
   val_batch_size: 1
   verbose: False
-  val_dir_blur: '/home/yjz/hdd/deblur_datasets/Deblur_whole/val'    # path to validation data
-  val_dir_rain: '/home/yjz/hdd/derain_datasets/Derain_whole/test/Rain100L'    
-  val_dir_noise: '/home/yjz/hdd/denoise_datasets/Denoise_whole/test'    
+  data_len: 50
+  dataroot_blur: '/home/yjz/hdd/deblur_datasets/Deblur_whole/test/GOPRO'    # path to validation data
+  dataroot_rain: '/home/yjz/hdd/derain_datasets/Derain_whole/test/Rain100L'    
+  dataroot_noise: '/home/yjz/hdd/denoise_datasets/Denoise_whole/test/SIDD'    
+  dataroot_light: '/home/yjz/hdd/lowlight_datasets/Lowlight_whole/test'    
 
 model:
   g_name: MPRnet

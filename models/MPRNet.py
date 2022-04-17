@@ -260,7 +260,7 @@ class MPRNet(nn.Module):
         self.concat23  = conv(n_feat*2, n_feat+scale_orsnetfeats, kernel_size, bias=bias)
         self.tail     = conv(n_feat+scale_orsnetfeats, out_c, kernel_size, bias=bias)
 
-    def forward(self, x3_img):
+    def forward(self, x3_img, index):
         # Original-resolution Image for Stage 3
         H = x3_img.size(2)
         W = x3_img.size(3)

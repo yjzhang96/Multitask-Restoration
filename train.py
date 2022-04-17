@@ -3,6 +3,7 @@ import time
 import os
 import ipdb
 import yaml
+import random
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -13,10 +14,10 @@ from torch.utils.data import DataLoader
 import numpy as np 
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
-dist.init_process_group(backend="nccl")
 
-from data import dataloader_pair,dataloader_pair_mix
+
+
+import data as Data
 from models import model_MPRnet
 from utils import utils 
 from tensorboardX import SummaryWriter
@@ -25,12 +26,17 @@ from tensorboardX import SummaryWriter
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", type=str, default='./checkpoints/config.yaml')
 parser.add_argument("--local_rank", type=int, help="")
+parser.add_argument("--phase", type=str, default='train')
 args = parser.parse_args()
 
 with open(args.config_file,'r') as f:
     config = yaml.load(f)
     for key,value in config.items():
         print('%s:%s'%(key,value))
+
+if config['Distributed']:
+    import torch.distributed as dist
+    dist.init_process_group(backend="nccl")
 
 ### make saving dir
 if not os.path.exists(config['checkpoints']):
@@ -44,15 +50,34 @@ os.system('cp %s %s'%(args.config_file, model_save_dir))
 
 ### load datasets
 if config['dataset_mode'] == 'pair':
-    train_dataset = dataloader_pair.BlurryVideo(config, train= True)
-    train_dataloader = DataLoader(train_dataset,
-                                    batch_size=config['batch_size'],
-                                    shuffle = True,
-                                    num_workers=16)
-    val_dataset = dataloader_pair.BlurryVideo(config, train= False)
-    val_dataloader = DataLoader(val_dataset,
-                                    batch_size=config['val']['val_batch_size'],
-                                    shuffle = True)
+    for phase, dataset_opt in config['datasets'].items():
+        if phase == 'train' and args.phase != 'val':
+            train_blur_set = Data.create_dataset(dataset_opt, phase, 'blur')
+            train_blur_loader = Data.create_dataloader(
+                train_blur_set, dataset_opt, phase)
+            train_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
+            train_rain_loader = Data.create_dataloader(
+                train_rain_set, dataset_opt, phase)
+            train_noise_set = Data.create_dataset(dataset_opt, phase, 'noise')
+            train_noise_loader = Data.create_dataloader(
+                train_noise_set, dataset_opt, phase)
+            train_light_set = Data.create_dataset(dataset_opt, phase, 'lowlight')
+            train_light_loader = Data.create_dataloader(
+                train_light_set, dataset_opt, phase)
+            train_degrade_num = dataset_opt['degrade_num']
+        elif phase == 'val':
+            val_blur_set = Data.create_dataset(dataset_opt, phase, 'blur')
+            val_blur_loader = Data.create_dataloader(
+                val_blur_set, dataset_opt, phase)
+            val_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
+            val_rain_loader = Data.create_dataloader(
+                val_rain_set, dataset_opt, phase)
+            val_noise_set = Data.create_dataset(dataset_opt, phase, 'noise')
+            val_noise_loader = Data.create_dataloader(
+                val_noise_set, dataset_opt, phase)
+            val_light_set = Data.create_dataset(dataset_opt, phase, 'lowlight')
+            val_light_loader = Data.create_dataloader(
+                val_light_set, dataset_opt, phase)    
 elif config['dataset_mode'] == 'mix':
     train_dataset = dataloader_pair_mix.BlurryVideo(config, train= True)
     train_dataloader = DataLoader(train_dataset,
@@ -65,8 +90,8 @@ elif config['dataset_mode'] == 'mix':
                                     sampler=DistributedSampler(val_dataset))
 else:
     raise ValueError("dataset_mode [%s] not recognized." % config['dataset_mode'])
-print("train_dataset:",train_dataset)
-print("val_dataset",val_dataset)
+# print("train_dataset:",train_dataset)
+# print("val_dataset",val_dataset)
 
 
 ### initialize model
@@ -127,22 +152,22 @@ def display_loss(loss,epoch,tot_epoch,step,step_per_epoch,time):
         log.write(messege+'\n')
 
 # validation
-def validation_pair(epoch):
+def validation_pair(iter):
     t_b_psnr = 0
     psnr_tot = 0
     cnt = 0
     start_time = time.time()
     print('--------validation begin----------')
-    for index, batch_data in enumerate(val_dataloader):
+    for index, batch_data in enumerate(val_blur_loader):
         model.set_input(batch_data)
         psnr_per = model.test(validation=True)
         psnr_tot += psnr_per
         cnt += 1
         if index > 100:
             break
-    message = 'Pair-data epoch %s restore PSNR: %.2f \n'%(epoch, psnr_tot/cnt)
+    message = 'Iteration %s restore PSNR: %.2f \n'%(iter, psnr_tot/cnt)
     print(message)
-    print('using time %.3f'%(time.time()-start_time))
+    # print('using time %.3f'%(time.time()-start_time))
     log_name = os.path.join(config['checkpoints'],config['model_name'],'psnr_log.txt')   
     with open(log_name,'a') as log:
         log.write(message)
@@ -153,52 +178,84 @@ val_restore_psnr = validation_pair(config['start_epoch'])
 writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
 
 best_psnr = 0.0
+total_iter = 0
 for epoch in range(config['start_epoch'], config['epoch']):
     epoch_start_time = time.time()
-    step_per_epoch = len(train_dataloader)
-    # for step, (batch_data1, batch_data2) in enumerate(zip(train_dataloader_gt,train_dataloader_unpair)):
-    G_iter = 0
-    D_iter = 0
-    for step, batch_data in enumerate(train_dataloader):
-        p = float(step + epoch * step_per_epoch) / config['epoch'] / step_per_epoch
-        alpha = 2. / (1. + np.exp(-10 * p)) - 1
+    iter_per_epoch = max(len(train_blur_loader),len(train_rain_loader),len(train_noise_loader))
+    print('There is {:d} iteration in one epoch:'.format(iter_per_epoch))
+    blur_data_iter = iter(train_blur_loader)
+    rain_data_iter = iter(train_rain_loader)
+    noise_data_iter = iter(train_noise_loader)
+    light_data_iter = iter(train_light_loader)
+    for step in range(iter_per_epoch):
+        total_iter += 1
         # # training step 2
         time_step1 = time.time()
+        random_type = random.randint(0,train_degrade_num-1)
+        if random_type == 0:
+            try:
+                train_data = next(blur_data_iter)
+            except:
+                blur_data_iter = iter(train_blur_loader)
+                continue
+        elif random_type == 1:
+            try:
+                train_data = next(rain_data_iter)
+            except:
+                rain_data_iter = iter(train_rain_loader)
+                continue 
+        elif random_type == 2:
+            try:
+                train_data = next(noise_data_iter) 
+            except:
+                print("The end of noise data iterator")
+                noise_data_iter = iter(train_noise_loader)
+                continue
+        elif random_type == 3:
+            try:
+                train_data = next(light_data_iter) 
+            except:
+                print("The end of light data iterator")
+                light_data_iter = iter(train_light_loader)
+                continue
+        else:
+            raise TypeError('dataloader type not recognized')
 
-        model.set_input(batch_data)        
+        model.set_input(train_data)        
         model.optimize()     
             
 
-        if step%config['display_freq'] == 0:
+        if (step+1)%config['display_freq'] == 0:
             #print a sample result in checkpoints/model_name/samples
             loss = model.get_loss()
             time_ave = (time.time() - time_step1)/config['display_freq']
-            display_loss(loss,epoch,config['epoch'],step,step_per_epoch,time_ave)
+            display_loss(loss,epoch,config['epoch'],step,iter_per_epoch,time_ave)
 
             results = model.get_current_visuals()
             utils.save_train_sample(config, epoch, results)
             
             for key, value in loss.items():
-                writer.add_scalar(key,value,step_per_epoch*epoch+step)
+                writer.add_scalar(key,value,iter_per_epoch*epoch+step)
+
+
+        if total_iter % config['save_iter'] == 0:
+            model.save(total_iter)
+            print('End of Iteration [%d/%d] \t Time Taken: %d sec' % (total_iter, iter_per_epoch, time.time() - epoch_start_time))
+        # paired_results = model.get_tensorboard_images()
+        # writer.add_image('Pair/input', paired_results['input'],epoch)
+        # writer.add_image('Pair/target', paired_results['target'],epoch)
+        # writer.add_image('Pair/restored', paired_results['restored'],epoch)
+        
+
+        if total_iter %config['val_freq'] == 0:
+            val_restore_psnr  = validation_pair(total_iter)
+            writer.add_scalar('PairPSNR/restore', val_restore_psnr, total_iter)
+
+            if val_restore_psnr > best_psnr:
+                best_psnr = val_restore_psnr
+                model.save('best')
 
     # schedule learning rate
     model.schedule_lr(epoch,config['epoch'])
     model.save('latest')
     print('End of epoch [%d/%d] \t Time Taken: %d sec' % (epoch, config['epoch'], time.time() - epoch_start_time))
-
-    if epoch%config['save_epoch'] == 0:
-        model.save(epoch)
-    # paired_results = model.get_tensorboard_images()
-    # writer.add_image('Pair/input', paired_results['input'],epoch)
-    # writer.add_image('Pair/target', paired_results['target'],epoch)
-    # writer.add_image('Pair/restored', paired_results['restored'],epoch)
-    
-
-    if epoch%config['val_freq'] == 0:
-        val_restore_psnr  = validation_pair(epoch)
-        writer.add_scalar('PairPSNR/restore', val_restore_psnr, epoch)
-
-        if val_restore_psnr > best_psnr:
-            best_psnr = val_restore_psnr
-            model.save('best')
-
