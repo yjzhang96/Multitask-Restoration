@@ -49,7 +49,7 @@ def save_image(image_numpy, image_path):
 def save_train_sample(config,epoch, results):
     save_dir = os.path.join(config['checkpoints'], config['model_name'], 'sample')
     if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+        os.makedirs(save_dir,exist_ok=True)
     for label, image_numpy in results.items():
         save_path = os.path.join(save_dir, 'epoch%.3d_%s.png'%(epoch,label))
         save_image(image_numpy, save_path)

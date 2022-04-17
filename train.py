@@ -40,10 +40,10 @@ if config['Distributed']:
 
 ### make saving dir
 if not os.path.exists(config['checkpoints']):
-    os.mkdir(config['checkpoints'])
+    os.makedirs(config['checkpoints'],exist_ok=True)
 model_save_dir = os.path.join(config['checkpoints'],config['model_name']) 
 if not os.path.exists(model_save_dir):
-    os.mkdir(model_save_dir)
+    os.makedirs(model_save_dir,exist_ok=True)
 os.system('cp %s %s'%(args.config_file, model_save_dir))
 
 
