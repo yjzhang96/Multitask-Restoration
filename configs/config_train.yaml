@@ -2,15 +2,15 @@
 dataset_mode: pair
 
 checkpoints: './checkpoints/'
-model_name: &MODEL_NAME test
+model_name: &MODEL_NAME MPR_4degrade
 MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
 model_class: MPRnet
 resume_train: false 
 which_epoch: latest
 start_epoch: 0
-save_iter: 100
+save_iter: 10000
 display_freq: 100
-val_freq: 100
+val_freq: 10000
 patch_size: 256
 gpu: [0,1]
 input_nc: 3
