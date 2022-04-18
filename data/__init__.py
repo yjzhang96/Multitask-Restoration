@@ -33,7 +33,7 @@ def create_dataset(dataset_opt, phase, degrade=None):
     '''create dataset'''
     # from data.LRHR_dataset import LRHRDataset as D
     from data.dataloader_pair import RestoreDataset as D
-    if phase == 'train':
+    if phase == 'train' or phase == 'val':
         if degrade == 'blur':
             dataset = D(dataroot=dataset_opt['dataroot_blur'],
                         degrade_type=degrade,
