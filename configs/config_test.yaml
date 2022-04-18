@@ -1,16 +1,14 @@
 ---
 dataset_mode: mix
 
-checkpoints: './checkpoints/MPR_naive'
-model_name: &MODEL_NAME MPR_mix_hpc
+checkpoints: './checkpoints/MPR'
+model_name: &MODEL_NAME MPR_baseline
 MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
 model_class: MPRnet
 resume_train: False 
 which_epoch: latest
 start_epoch: 0
 save_epoch: 50
-display_freq: 100
-val_freq: 4
 crop_size: 256
 gpu: [0,1]
 input_nc: 3
@@ -22,6 +20,7 @@ batch_size: 2
 is_training: False
 iteration_G: 1
 load_only_G: false
+Distributed: false
 
 train:
   lr_G: 0.0001
@@ -52,10 +51,15 @@ model:
 
 test:
   result_dir: ./exp_results
-  save_dir: Mix_blur_noise_iter2
+  save_dir: GOPRO
   verbose: True
   test_batch_size: 1
   which_epoch: best
-  dataset_mode: mix
-  # test_dir: '/home/yjz/hdd/Mixed_datasets/Blur_noise/Gopro_gauss'   
-  test_dir: '/home/yjz/Image_deblur/Multitask_restore/exp_results/Mix_blur_noise/mixed/Gopro_gauss'   
+  dataset_mode: pair
+  dataset:
+    batch_size: 1
+    data_len: -1
+    degrade_type: blur
+    dataroot: '/home/yjz/hdd/deblur_datasets/Deblur_whole/test/'    # path to validation data
+    patch_size: -1
+  # test_dir: '/home/yjz/Image_deblur/Multitask_restore/exp_results/Mix_blur_noise/mixed/Gopro_gauss'   

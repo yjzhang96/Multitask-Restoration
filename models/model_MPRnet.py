@@ -31,8 +31,11 @@ class RestoreNet():
                 device = torch.device('cpu')
 
         ### initial model and model parallel
+        # DDP
         self.net_G = networks.define_net_G(config)
         if config['Distributed'] and torch.cuda.device_count()>1:
+            if config['resume_train'] or not config['is_training']:
+                self.load(config)
             self.net_G.to(device)
             print("let's use", torch.cuda.device_count(),"GPUs!")
             self.net_G = torch.nn.parallel.DistributedDataParallel(
@@ -41,11 +44,13 @@ class RestoreNet():
                 output_device=local_rank,
                 find_unused_parameters=True
             )
-        elif not config['Distributed'] and len(config['gpu']) >1:
+        # DP or CPU
+        elif not config['Distributed']:
             self.net_G.to(device)
-            self.net_G = torch.nn.DataParallel(self.net_G, config['gpu'])
-        else:
-            self.net_G.to(device)
+            if len(config['gpu']) >1:
+                self.net_G = torch.nn.DataParallel(self.net_G, config['gpu'])
+            if config['resume_train'] or not config['is_training']:
+                self.load(config)
 
         ###Loss and Optimizer
         self.MSE = nn.MSELoss()
@@ -56,9 +61,6 @@ class RestoreNet():
 
         if config['is_training']:
             self.optimizer_G = torch.optim.Adam( self.net_G.parameters(), lr=config['train']['lr_G'], betas=(0.9, 0.999) )
-            
-        if config['resume_train'] or not config['is_training']:
-            self.load(config)
             if config['resume_train']:
                 print("------loading learning rate------")
                 self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
@@ -125,14 +127,16 @@ class RestoreNet():
     def load(self, config):
         load_path = os.path.join(config['checkpoints'], config['model_name'])
         load_G_file = load_path + '/' + 'G_net_%s.pth'%config['which_epoch']
-        
-        if len(self.config['gpu'])>1:
+        print(load_G_file) 
+        if len(self.config['gpu'])>1 and isinstance(self.net_G, nn.DataParallel):
+            print('--------load model.module ----------') 
             self.net_G.module.load_state_dict(torch.load(load_G_file))
         else:
+            print('--------load model without .module ----------')
             self.net_G.load_state_dict(torch.load(load_G_file))
         print('--------load model %s success!-------'%load_G_file)
-
-
+        
+        
     def schedule_lr(self, epoch,tot_epoch):
         # scheduler
         # print("current learning rate:%.7f"%self.scheduler.get_lr())

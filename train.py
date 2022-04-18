@@ -31,8 +31,7 @@ args = parser.parse_args()
 
 with open(args.config_file,'r') as f:
     config = yaml.load(f)
-    for key,value in config.items():
-        print('%s:%s'%(key,value))
+    utils.print_config(config)
 
 if config['Distributed']:
     import torch.distributed as dist
@@ -125,10 +124,7 @@ def write_lr():
 
 ### Initialization
 if config['resume_train']:
-    if config['which_epoch'] != 'latest':
-        config['start_epoch'] = int(config['which_epoch'])
-    elif config['which_epoch'] == 'latest':
-        assert config['start_epoch'] != 0
+    assert config['start_epoch'] != 0
 else:
     os.system('rm %s/%s/psnr_log.txt'%(config['checkpoints'], config['model_name']))
     # os.system('rm %s/%s/loss_log.txt'%(config['checkpoints'], config['model_name']))
