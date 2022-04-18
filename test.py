@@ -12,31 +12,32 @@ import torch.nn as nn
 import torch.nn.functional as F 
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
-import torch.distributed as dist
-dist.init_process_group(backend="nccl")
 
 from utils import utils 
 from models import model_MPRnet
-from data import dataloader_pair, dataloader_pair_mix
-
+# from data import dataloader_pair, dataloader_pair_mix
+import data as Data
 parser = argparse.ArgumentParser()
 parser.add_argument("--local_rank", type=int, help="")
 parser.add_argument("--config_file", type=str, default='./checkpoints/config.yaml')
-config = parser.parse_args()
+parser.add_argument("--phase", type=str, default='test')
+args = parser.parse_args()
 
 def write_txt(file_name, line):
     with open(file_name,'a') as log:
         log.write(line+'\n')
     print(line)
 
-
-with open(config.config_file,'r') as f:
+with open(args.config_file,'r') as f:
     config = yaml.load(f)
     config['is_training'] = False
     config['resume_train'] = False
     config['which_epoch'] = config['test']['which_epoch']
-for key,value in config.items():
-    print('%s:%s'%(key,value))
+    utils.print_config(config)
+
+if config['Distributed']:
+    import torch.distributed as dist
+    dist.init_process_group(backend="nccl")
 
 ### make saving dir
 test_config = config['test']
@@ -47,7 +48,7 @@ if test_config['save_dir']:
 else:
     image_save_dir = os.path.join(test_config['result_dir'],config['model_name']) 
 
-path_root = test_config['test_dir']
+path_root = test_config['dataset']['dataroot']
 if "denoise_dataset" in path_root:
     task_name = "denoise"
 elif "derain_dataset" in path_root:
@@ -75,15 +76,15 @@ model = Model.RestoreNet(config)
 def test_one_dir():
     ### load datasets
     if test_config['dataset_mode'] == 'pair':
-        test_dataset = dataloader_pair.BlurryVideo(config, train= False)
-        test_dataloader = DataLoader(test_dataset,
-                                        batch_size=test_config['test_batch_size'],
-                                        shuffle = False)                            
+        dataset_opt = test_config['dataset']
+        test_dataset = Data.create_dataset(dataset_opt, args.phase, dataset_opt['degrade_type'])
+        test_dataloader = Data.create_dataloader(
+            test_dataset, dataset_opt, args.phase)                         
     elif test_config['dataset_mode'] == 'mix':
         test_dataset = dataloader_pair_mix.BlurryVideo(config, train= False)
         test_dataloader = DataLoader(test_dataset,
                                         batch_size=test_config['test_batch_size'],
-                                        sampler=DistributedSampler(test_dataset))
+                                        shuffle = False)
     print(test_dataset)
 
     t_test_psnr = 0
@@ -106,7 +107,7 @@ def test_one_dir():
         results = model.get_current_visuals()
         utils.save_test_images(config, image_save_dir, results, image_path)
             
-    message = 'test %s model on %s PSNR: %.2f'%(config['model_name'], config['test']['test_dir'], t_test_psnr/cnt)
+    message = 'test %s model on %s PSNR: %.2f'%(config['model_name'], test_config['dataset']['dataroot'], t_test_psnr/cnt)
     print(message)
     write_txt(record_file, message)
     print('Test time %.3f'%(time.time()-start_time))
@@ -117,12 +118,12 @@ def walk_test_dir(test_dir):
     if 'input' in sub_dir:
         test_one_dir()
     else:
-        for video_i in sub_dir:
-            test_config['test_dir'] = os.path.join(test_dir,video_i)
-            test_video_dir = os.path.join(test_dir,video_i)
+        for dataset_i in sub_dir:
+            test_config['dataset']['dataroot'] = os.path.join(test_dir,dataset_i)
+            test_video_dir = os.path.join(test_dir,dataset_i)
             walk_test_dir(test_video_dir)
 
-test_dir = test_config['test_dir']
+test_dir = test_config['dataset']['dataroot']
 walk_test_dir(test_dir)
 
 

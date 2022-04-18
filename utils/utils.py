@@ -109,6 +109,13 @@ def bmap2heat(bmap_gpu):
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return rgb
 
+def print_config(config):
+    for key,value in config.items():
+        if isinstance(value, dict):
+            print('\n {:s}:'.format(key))
+            print_config(value)
+        else:
+            print('%s:%s'%(key,value))
 
 def parse(parser):
 

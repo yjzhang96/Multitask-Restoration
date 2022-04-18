@@ -126,10 +126,10 @@ class RestoreNet():
         load_path = os.path.join(config['checkpoints'], config['model_name'])
         load_G_file = load_path + '/' + 'G_net_%s.pth'%config['which_epoch']
         
-        # if len(self.config['gpu'])>1:
-        #     self.net_G.load_state_dict(torch.load(load_G_file))
-        # else:
-        self.net_G.load_state_dict(torch.load(load_G_file))
+        if len(self.config['gpu'])>1:
+            self.net_G.module.load_state_dict(torch.load(load_G_file))
+        else:
+            self.net_G.load_state_dict(torch.load(load_G_file))
         print('--------load model %s success!-------'%load_G_file)
 
 

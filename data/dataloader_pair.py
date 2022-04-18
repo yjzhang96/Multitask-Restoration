@@ -133,7 +133,7 @@ class RestoreDataset(data.Dataset):
         # Raise error if no images found in root.
         self.dataset_len = len(framesPath)
         if self.dataset_len == 0:
-            raise(RuntimeError("Found 0 files in subfolders of: datasets"))
+            raise(RuntimeError("Found 0 files in subfolders of: %s"%(dataroot)))
                 
         if self.data_len <= 0:
                 self.data_len = self.dataset_len
@@ -191,7 +191,7 @@ class RestoreDataset(data.Dataset):
         tar_path = self.framesPath[index]['target']
         inp_img = Image.open(inp_path)
         tar_img = Image.open(tar_path)
-        if (self.phase):
+        if self.phase == 'train':
             ps = self.patch_size
             ### Data Augmentation ###
             
@@ -252,21 +252,15 @@ class RestoreDataset(data.Dataset):
                 tar_img = torch.rot90(tar_img.flip(2),dims=(1,2))
             
         
-        else:
-            if self.config['is_training']:
-                # Validate on center crop
-                if self.patch_size is not None:
-                    ps = self.patch_size
-                    inp_img = TF.center_crop(inp_img, (ps,ps))
-                    tar_img = TF.center_crop(tar_img, (ps,ps))
+        elif self.phase == 'val' or self.phase == 'test':
+            # Validate on center crop
+            if self.patch_size > 0:
+                ps = self.patch_size
+                inp_img = TF.center_crop(inp_img, (ps,ps))
+                tar_img = TF.center_crop(tar_img, (ps,ps))
 
-                inp_img = TF.to_tensor(inp_img)
-                tar_img = TF.to_tensor(tar_img)
-
-            else:
-                # test
-                inp_img = TF.to_tensor(inp_img)
-                tar_img = TF.to_tensor(tar_img)
+            inp_img = TF.to_tensor(inp_img)
+            tar_img = TF.to_tensor(tar_img)
         
         sample['input'] = inp_img
         sample['target'] = tar_img
