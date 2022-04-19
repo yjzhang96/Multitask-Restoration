@@ -8,3 +8,4 @@ misc/
 results/
 exp_results/
 *.log
+__pycache__

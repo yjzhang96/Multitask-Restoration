@@ -1,13 +1,13 @@
 ---
 dataset_mode: pair
 
-checkpoints: './checkpoints/MPR'
-model_name: &MODEL_NAME MPR_baseline
+checkpoints: './checkpoints'
+model_name: &MODEL_NAME test
 MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
 model_class: MPRnet
-resume_train: true 
-which_epoch: 90000
-start_epoch: 6
+resume_train: false 
+which_epoch: latest
+start_epoch: 0
 save_iter: 10000
 display_freq: 100
 val_freq: 10000
@@ -51,7 +51,9 @@ datasets:
     patch_size: -1
 
 model:
-  g_name: MPRnet
+  g_name: MPRnet_MH
+  n_feat: 64
+  degrade_num: 4 
   d_name: Offset
   use_sigmoid: 0
   norm: 

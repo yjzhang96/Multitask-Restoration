@@ -78,12 +78,12 @@ if config['dataset_mode'] == 'pair':
             val_light_loader = Data.create_dataloader(
                 val_light_set, dataset_opt, phase)    
 elif config['dataset_mode'] == 'mix':
-    train_dataset = dataloader_pair_mix.BlurryVideo(config, train= True)
+    train_dataset = Data.dataloader_pair_mix.BlurryVideo(config, train= True)
     train_dataloader = DataLoader(train_dataset,
                                     batch_size=config['batch_size'],
                                     sampler=DistributedSampler(train_dataset),
                                     num_workers=16)
-    val_dataset = dataloader_pair_mix.BlurryVideo(config, train= False)
+    val_dataset = Data.dataloader_pair_mix.BlurryVideo(config, train= False)
     val_dataloader = DataLoader(val_dataset,
                                     batch_size=config['val']['val_batch_size'],
                                     sampler=DistributedSampler(val_dataset))

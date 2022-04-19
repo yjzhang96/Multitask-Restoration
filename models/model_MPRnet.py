@@ -12,7 +12,7 @@ from utils import utils
 from .schedulers import WarmRestart,LinearDecay
 from utils.image_pool import ImagePool
 from ipdb import set_trace as stc
-
+import random
 class RestoreNet():
     def __init__(self, config):
         self.config = config
@@ -76,9 +76,15 @@ class RestoreNet():
         self.index = batch_data['index'].cuda()
 
     def optimize(self):
+        degrade_num = self.config['model']['degrade_num']
         self.restored = self.net_G(self.input, self.index)
 
-        
+        alter_type = random.random()
+        if alter_type < 0.25:
+            alter_index = random.randint(1,degrade_num-1)
+            self.index = (self.index + alter_index)%degrade_num
+            self.target = self.input
+
         loss_char_j = [self.criterion_char(self.restored[j],self.target) for j in range(len(self.restored))]
         self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
         loss_edge_j = [self.criterion_edge(self.restored[j],self.target) for j in range(len(self.restored))]

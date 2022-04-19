@@ -10,6 +10,7 @@ from .functions import ReverseLayerF
 from .UNet_discriminator import UNetDiscriminator
 # from .DCN_v2.modules.modulated_deform_conv import ModulatedDeformConv_blur
 from .MPRNet import MPRNet
+from .MPRNet_MH import MPRNet_MH
 
 def _get_orthogonal_init_weights(weights):
     fan_out = weights.size(0)
@@ -106,7 +107,9 @@ def define_net_G(config):
     elif generator_name == 'DMPHN':
         model_g = DMPHN_deblur()
     elif generator_name == 'MPRnet':
-        model_g = MPRNet(n_feat=64)
+        model_g = MPRNet(n_feat=config['model']['n_feat'])
+    elif generator_name == 'MPRnet_MH':
+        model_g = MPRNet_MH(n_feat=config['model']['n_feat'])    
     else:
         raise ValueError("Generator Network [%s] not recognized." % generator_name)
     model_g = init_net(model_g,gpu_ids=config['gpu'])
@@ -150,107 +153,10 @@ def define_global_D(config, input_nc=3, ndf=64, n_layers_D=3, norm='instance', u
     netD = init_net(patch_gan, gpu_ids=config['gpu'])
     return netD
 
-def define_net_offset(config):
-    model_d = OffsetNet(input_nc=3,nf=16,output_nc=2)
-    model_d = init_net(model_d,gpu_ids=config['gpu'])
-    return model_d
 
-
-def define_offset_quad(input_nc, nf, n_offset, norm='batch', gpu_ids=[]):
-    net_offset = None
-    use_gpu = len(gpu_ids) > 0
-    # norm_layer = get_norm_layer(norm_type=norm)
-
-    if use_gpu:
-        assert (torch.cuda.is_available())
-    net_offset = OffsetNet_quad(input_nc,nf,n_offset,gpu_ids=gpu_ids)
-
-    # if use_gpu:
-    #     # net_offset.cuda(gpu_ids[0])
-    #     net_offset.to(gpu_ids[0])
-    #     if len(gpu_ids)>1:
-    #         net_offset = torch.nn.DataParallel(net_offset,gpu_ids)
-    # net_offset.apply(weights_init)
-    net_offset = init_net(net_offset,gpu_ids=gpu_ids)
-    return net_offset
-
-def define_blur(input_nc=3, output_nc=3, n_offset=1,gpu_ids=[]):
-    net_blur = None
-    use_gpu = len(gpu_ids) > 0
-
-    if use_gpu:
-        assert (torch.cuda.is_available())
-    net_blur = BlurNet()
-
-    # if use_gpu:
-    #     net_blur.cuda(gpu_ids[0])
-    net_blur = init_net(net_blur, gpu_ids=gpu_ids,initialize_weights=False)
-    return net_blur
-
-def define_blur_layer(input_nc=3, output_nc=3, n_offset=1,gpu_ids=[]):
-    net_blur = None
-    use_gpu = len(gpu_ids) > 0
-
-    if use_gpu:
-        assert (torch.cuda.is_available())
-    net_blur = BlurNet(input_nc,output_nc,n_offset)
-
-    # if use_gpu:
-    #     net_blur.cuda(gpu_ids[0])
-    net_blur = init_net(net_blur, gpu_ids=gpu_ids,initialize_weights=False)
-    return net_blur
 
     
 ############   Classes     ##############
-class BlurNet(nn.Module):
-    def __init__(self,offsets_num=15):
-        super(BlurNet,self).__init__()
-        kernel_size = 1
-        self.offsets_num = offsets_num
-        self.Dcn = ModulatedDeformConv_blur(in_channels=1, out_channels=1, kernel_size=kernel_size,
-						stride=1, padding=0, deformable_groups=1)
-        
-    def linear_traj(self,offset10,offset12):
-        B,C,H,W = offset10.size()
-        N = self.offsets_num//2
-        t12 = torch.arange(1,N+1,step=1,dtype=torch.float32).cuda()
-        t01 = torch.arange(N,0,step=-1,dtype=torch.float32).cuda()
-        t12 = t12/N
-        t01 = t01/N
-        t12 = t12.view(-1,1,1,1)
-        t01 = t01.view(-1,1,1,1)
-        offset10 = offset10.view(B,1,2,H,W)
-        offset12 = offset12.unsqueeze(1)
-        offset_12_traj = t12 * offset12
-        offset_01_traj = t01 * offset10
-        offset_12_traj = offset_12_traj.view(B,-1,H,W)
-        offset_01_traj = offset_01_traj.view(B,-1,H,W)
-        return offset_01_traj,offset_12_traj
-
-    def forward(self,fake_S,blurmap):
-        B,C,H,W = fake_S.shape
-        
-        # blurmap to offsets
-        offset_SPoint = blurmap * 20
-        offset_EPoint = 0 - offset_SPoint
-        offset_S_0, offset_0_E = self.linear_traj(offset_SPoint,offset_EPoint)
-        zeros = torch.zeros(B,2,H,W).cuda()
-        offsets = torch.cat((offset_S_0,zeros,offset_0_E),dim=1)
-        # warping S to blur_offset_i
-        offset_N = torch.chunk(offsets, self.offsets_num,dim=1)
-        fake_B_n = torch.zeros(B,C*self.offsets_num,H,W).cuda()
-        for i,offset_i in enumerate(offset_N):
-            o1, o2 = torch.chunk(offset_i, 2, dim=1) 
-            offset_i = torch.cat((o1, o2), dim=1)
-            mask = torch.ones(B,1,H,W).cuda() 
-            fake_B_n[:,i*3:(i+1)*3,:,:] = self.Dcn(fake_S,offset_i,mask)
-        
-        # fake_B = fake_B_n/self.offsets_num
-        fake_B_n = fake_B_n.view(B,15,-1,H,W)
-        fake_B = torch.sum(fake_B_n,dim=1)/15
-
-        return fake_B, offsets
-
 
 class ResnetBlock(nn.Module):
 
@@ -299,210 +205,6 @@ def conv_TriResblock(input_nc,out_nc,stride, use_bias=True, norm_layer=None):
     tri_resblock = TriResblock(out_nc, norm_layer=norm_layer)
     return nn.Sequential(pad,conv,Relu,tri_resblock)
         
-
-class OffsetNet(nn.Module):
-    # offset for Start and End Points, then calculate a quadratic function
-    def __init__(self, input_nc, nf, output_nc, norm_layer=None,offset_method='lin'):
-        super(OffsetNet,self).__init__()
-        self.input_nc = input_nc
-        self.nf = nf
-        self.offset_method = offset_method
-        if offset_method == 'quad' or offset_method == 'bilin':
-            output_nc = 2 * 2
-        elif offset_method == 'lin':
-            output_nc = 1 * 2
-        
-        use_bias = True
-        self.pad_1 = nn.ReflectionPad2d((1,2,1,2))
-        self.todepth = SpaceToDepth(block_size=2)
-        self.conv_1 = conv_TriResblock(input_nc*4,nf,stride=1,use_bias=True,norm_layer=norm_layer)
-        self.conv_2 = conv_TriResblock(nf,nf*2,stride=2,use_bias=True,norm_layer=norm_layer)
-        self.conv_3 = conv_TriResblock(nf*2,nf*4,stride=2,use_bias=True,norm_layer=norm_layer)
-        # self.conv_4 = conv_TriResblock(nf*4,nf*8,stride=1,use_bias=True)
-
-        self.bottleneck_1 = Bottleneck(nf*4)
-        self.uconv_1 = nn.ConvTranspose2d(nf*4, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        
-        self.bottleneck_2 = Bottleneck(nf*4)        
-        self.uconv_2 = nn.ConvTranspose2d(nf*4, nf, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.bottleneck_3 = Bottleneck(nf*2)
-        self.uconv_3 = nn.ConvTranspose2d(nf*2, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.conv_out_0 = nn.Conv2d(nf*2,output_nc,kernel_size=5,stride=1,padding=2,bias=use_bias)
-    
-
-    def forward(self,input):     
-        scale_0 = input
-        B,N,H,W = input.size()
-        scale_0_depth = self.todepth(scale_0)
-        d_conv1 = self.conv_1(scale_0_depth)
-        d_conv2 = self.conv_2(d_conv1)
-        d_conv3 = self.conv_3(d_conv2)
-
-        d_conv3 = self.bottleneck_1(d_conv3)
-        u_conv1 = self.uconv_1(d_conv3)
-        u_conv1 = F.leaky_relu(u_conv1,0.2,True) 
-        u_conv1 = torch.cat((u_conv1 , d_conv2),dim=1)
-        
-        u_conv1 = self.bottleneck_2(u_conv1)
-        u_conv2 = self.uconv_2(u_conv1)
-        u_conv2 = F.leaky_relu(u_conv2,0.2,True)
-        u_conv2 = torch.cat((u_conv2 , d_conv1),dim=1)
-
-        u_conv2 = self.bottleneck_3(u_conv2)
-        u_conv3 = self.uconv_3(u_conv2)
-        out = self.conv_out_0(F.relu(u_conv3))
-        return out
-
-class OffsetNet_with_classifier(nn.Module):
-    # offset for Start and End Points, then calculate a quadratic function
-    def __init__(self, input_nc, nf, output_nc, norm_layer=None,offset_method='lin'):
-        super(OffsetNet_with_classifier,self).__init__()
-        self.input_nc = input_nc
-        self.nf = nf
-        self.offset_method = offset_method
-        if offset_method == 'quad' or offset_method == 'bilin':
-            output_nc = 2 * 2
-        elif offset_method == 'lin':
-            output_nc = 1 * 2
-        
-        use_bias = True
-        self.pad_1 = nn.ReflectionPad2d((1,2,1,2))
-        self.todepth = SpaceToDepth(block_size=2)
-        self.conv_1 = conv_TriResblock(input_nc*4,nf,stride=1,use_bias=True,norm_layer=norm_layer)
-        self.conv_2 = conv_TriResblock(nf,nf*2,stride=2,use_bias=True,norm_layer=norm_layer)
-        self.conv_3 = conv_TriResblock(nf*2,nf*4,stride=2,use_bias=True,norm_layer=norm_layer)
-        # self.conv_4 = conv_TriResblock(nf*4,nf*8,stride=1,use_bias=True)
-
-        self.bottleneck_1 = Bottleneck(nf*4)
-        self.uconv_1 = nn.ConvTranspose2d(nf*4, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        
-        self.bottleneck_2 = Bottleneck(nf*4)        
-        self.uconv_2 = nn.ConvTranspose2d(nf*4, nf, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.bottleneck_3 = Bottleneck(nf*2)
-        self.uconv_3 = nn.ConvTranspose2d(nf*2, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.conv_out_0 = nn.Conv2d(nf*2,output_nc,kernel_size=5,stride=1,padding=2,bias=use_bias)
-
-        self.feature_conv = nn.Sequential()
-        self.feature_conv.add_module('c_f_conv1', nn.Conv2d(64, 64, kernel_size=5))
-        self.feature_conv.add_module('c_f_bn1', nn.BatchNorm2d(64))
-        self.feature_conv.add_module('c_f_pool1', nn.MaxPool2d(2))
-        self.feature_conv.add_module('c_f_relu1', nn.ReLU(True))
-        self.feature_conv.add_module('c_f_conv2', nn.Conv2d(64, 64, kernel_size=5))
-        self.feature_conv.add_module('c_f_bn2', nn.BatchNorm2d(64))
-        self.feature_conv.add_module('c_f_drop1', nn.Dropout2d())
-        self.feature_conv.add_module('c_f_pool2', nn.MaxPool2d(2))
-        self.feature_conv.add_module('c_f_relu2', nn.ReLU(True))
-        self.domain_classifier = nn.Sequential()
-        self.domain_classifier.add_module('c_fc1', nn.Linear(64 * 5 * 5, 1000))
-        self.domain_classifier.add_module('c_bn1', nn.BatchNorm1d(1000))
-        self.domain_classifier.add_module('c_relu1', nn.ReLU(True))
-        self.domain_classifier.add_module('c_drop1', nn.Dropout())
-        self.domain_classifier.add_module('c_fc2', nn.Linear(1000, 100))
-        self.domain_classifier.add_module('c_bn2', nn.BatchNorm1d(100))
-        self.domain_classifier.add_module('c_relu2', nn.ReLU(True))
-        self.domain_classifier.add_module('c_fc3', nn.Linear(100, 2))
-        self.domain_classifier.add_module('c_softmax', nn.LogSoftmax(dim=1))
-
-
-    def forward(self,input, domain_class=False, alpha=0.0):     
-        scale_0 = input
-        B,N,H,W = input.size()
-        scale_0_depth = self.todepth(scale_0)
-        d_conv1 = self.conv_1(scale_0_depth)
-        d_conv2 = self.conv_2(d_conv1)
-        d_conv3 = self.conv_3(d_conv2)
-
-        d_conv3 = self.bottleneck_1(d_conv3)
-        u_conv1 = self.uconv_1(d_conv3)
-        u_conv1 = F.leaky_relu(u_conv1,0.2,True) 
-        u_conv1 = torch.cat((u_conv1 , d_conv2),dim=1)
-        
-        u_conv1 = self.bottleneck_2(u_conv1)
-        u_conv2 = self.uconv_2(u_conv1)
-        u_conv2 = F.leaky_relu(u_conv2,0.2,True)
-        u_conv2 = torch.cat((u_conv2 , d_conv1),dim=1)
-
-        u_conv2 = self.bottleneck_3(u_conv2)
-        u_conv3 = self.uconv_3(u_conv2)
-        out = self.conv_out_0(F.relu(u_conv3))
-
-        if domain_class:
-            feature = d_conv3
-            reverse_feature = ReverseLayerF.apply(feature,alpha)
-            reverse_feature = self.feature_conv(reverse_feature)
-            reverse_feature = reverse_feature.view(-1,64*5*5)
-            domain_output = self.domain_classifier(reverse_feature)
-            return out, domain_output
-        else:
-            return out
-
-class OffsetNet_norm(nn.Module):
-    # offset for Start and End Points, then calculate a quadratic function
-    def __init__(self, input_nc, nf, output_nc, norm_layer=None,offset_method='lin'):
-        super(OffsetNet_norm,self).__init__()
-        self.input_nc = input_nc
-        self.nf = nf
-        self.offset_method = offset_method
-        if offset_method == 'quad' or offset_method == 'bilin':
-            output_nc = 2 * 2
-        elif offset_method == 'lin':
-            output_nc = 1 * 2
-        
-        use_bias = True
-        self.pad_1 = nn.ReflectionPad2d((1,2,1,2))
-        self.todepth = SpaceToDepth(block_size=2)
-        self.conv_1 = conv_TriResblock(input_nc*4,nf,stride=1,use_bias=True,norm_layer=norm_layer)
-        self.conv_2 = conv_TriResblock(nf,nf*2,stride=2,use_bias=True,norm_layer=norm_layer)
-        self.conv_3 = conv_TriResblock(nf*2,nf*4,stride=2,use_bias=True,norm_layer=norm_layer)
-        # self.conv_4 = conv_TriResblock(nf*4,nf*8,stride=1,use_bias=True)
-
-        self.bottleneck_1 = Bottleneck(nf*4)
-        self.uconv_1 = nn.ConvTranspose2d(nf*4, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.norm1 = norm_layer(nf*2)
-        self.bottleneck_2 = Bottleneck(nf*4)        
-        self.uconv_2 = nn.ConvTranspose2d(nf*4, nf, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.norm2 = norm_layer(nf)
-        self.bottleneck_3 = Bottleneck(nf*2)
-        self.uconv_3 = nn.ConvTranspose2d(nf*2, nf*2, kernel_size=4, stride=2, padding=1, 
-                                        bias=use_bias)
-        self.norm3 = norm_layer(nf*2)
-        self.conv_out_0 = nn.Conv2d(nf*2,output_nc,kernel_size=5,stride=1,padding=2,bias=use_bias)
-    
-
-    def forward(self,input):     
-        scale_0 = input
-        B,N,H,W = input.size()
-        scale_0_depth = self.todepth(scale_0)
-        d_conv1 = self.conv_1(scale_0_depth)
-        d_conv2 = self.conv_2(d_conv1)
-        d_conv3 = self.conv_3(d_conv2)
-
-        d_conv3 = self.bottleneck_1(d_conv3)
-        u_conv1 = self.uconv_1(d_conv3)
-        u_conv1 = self.norm1(u_conv1)
-        u_conv1 = F.leaky_relu(u_conv1,0.2,True) 
-        u_conv1 = torch.cat((u_conv1 , d_conv2),dim=1)
-        
-        u_conv1 = self.bottleneck_2(u_conv1)
-        u_conv2 = self.uconv_2(u_conv1)
-        u_conv2 = self.norm2(u_conv2)
-        u_conv2 = F.leaky_relu(u_conv2,0.2,True)
-        u_conv2 = torch.cat((u_conv2 , d_conv1),dim=1)
-
-        u_conv2 = self.bottleneck_3(u_conv2)
-        u_conv3 = self.uconv_3(u_conv2)
-        u_conv3 = self.norm3(u_conv3)
-        out = self.conv_out_0(F.relu(u_conv3))
-        return out
-
 class MultiscaleDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, 
                  use_sigmoid=False, num_D=2, getIntermFeat=False):

@@ -59,7 +59,7 @@ test:
   dataset:
     batch_size: 1
     data_len: -1
-    degrade_type: blur
-    dataroot: '/home/yjz/hdd/deblur_datasets/Deblur_whole/test/'    # path to validation data
+    degrade_type: rain
+    dataroot: '/home/yjz/hdd/derain_datasets/Derain_whole/test/Test1200'    # path to validation data
     patch_size: -1
   # test_dir: '/home/yjz/Image_deblur/Multitask_restore/exp_results/Mix_blur_noise/mixed/Gopro_gauss'   

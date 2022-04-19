@@ -56,8 +56,8 @@ def _make_dataset(input_dir,target_dir):
     framesPath = []
     # Find and loop over all the clips in root `dir`.
     count = 0
-    input_img_paths = sorted(glob(os.path.join(input_dir,'*.png'), recursive=True))
-    target_img_paths = sorted(glob(os.path.join(target_dir,'*.png'), recursive=True))
+    input_img_paths = sorted(glob(os.path.join(input_dir,'*'), recursive=True))
+    target_img_paths = sorted(glob(os.path.join(target_dir,'*'), recursive=True))
     assert len(input_img_paths) == len(target_img_paths)
     for index in range(len(input_img_paths)):
         
