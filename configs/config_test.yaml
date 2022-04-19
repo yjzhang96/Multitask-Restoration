@@ -51,10 +51,10 @@ model:
 
 test:
   result_dir: ./exp_results
-  save_dir: GOPRO
+  save_dir: *MODEL_NAME
   verbose: True
   test_batch_size: 1
-  which_epoch: best
+  which_epoch: latest
   dataset_mode: pair
   dataset:
     batch_size: 1

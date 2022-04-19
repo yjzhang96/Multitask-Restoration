@@ -19,7 +19,7 @@ class RestoreNet():
         
         ## configure multi-process GPU
         if config['Distributed']:
-            local_rank = torch.distributed.get_rank()%2
+            local_rank = torch.distributed.get_rank()%len(config['gpu'])
             print('local rank:',local_rank)
             torch.cuda.set_device(local_rank)
             device = torch.device("cuda",local_rank)
