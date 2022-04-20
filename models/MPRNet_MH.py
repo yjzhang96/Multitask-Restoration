@@ -339,7 +339,7 @@ class MPRNet_MH(nn.Module):
     def forward(self, x3_img, index):
         # degrade_type embedding
         if self.type_emb_mlp:
-            index_emb = self.type_emb_mlp(index)
+            index_emb = self.type_emb_mlp(index.float())
         else:
             index_emb = None
         # Original-resolution Image for Stage 3
