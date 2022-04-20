@@ -368,10 +368,10 @@ class MPRNet_MH(nn.Module):
         x1rbot = self.shallow_feat1(self.head_conv1(x1rbot_img), index_emb)
         
         ## Process features of all 4 patches with Encoder of Stage 1
-        feat1_ltop = self.stage1_encoder(x1ltop, index_emb)
-        feat1_rtop = self.stage1_encoder(x1rtop, index_emb)
-        feat1_lbot = self.stage1_encoder(x1lbot, index_emb)
-        feat1_rbot = self.stage1_encoder(x1rbot, index_emb)
+        feat1_ltop = self.stage1_encoder(x1ltop, index_emb=index_emb)
+        feat1_rtop = self.stage1_encoder(x1rtop, index_emb=index_emb)
+        feat1_lbot = self.stage1_encoder(x1lbot, index_emb=index_emb)
+        feat1_rbot = self.stage1_encoder(x1rbot, index_emb=index_emb)
         
         ## Concat deep features
         feat1_top = [torch.cat((k,v), 3) for k,v in zip(feat1_ltop,feat1_rtop)]

@@ -109,7 +109,10 @@ def define_net_G(config):
     elif generator_name == 'MPRnet':
         model_g = MPRNet(n_feat=config['model']['n_feat'])
     elif generator_name == 'MPRnet_MH':
-        model_g = MPRNet_MH(n_feat=config['model']['n_feat'])    
+        model_g = MPRNet_MH(n_feat = config['model']['n_feat'],
+                            degrade_num = config['model']['degrade_num'],
+                            use_type_emb = config['model']['use_type_emb']
+                            )    
     else:
         raise ValueError("Generator Network [%s] not recognized." % generator_name)
     model_g = init_net(model_g,gpu_ids=config['gpu'])

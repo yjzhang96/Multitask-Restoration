@@ -54,6 +54,7 @@ model:
   g_name: MPRnet_MH
   n_feat: 64
   degrade_num: 4 
+  use_type_emb: True
   d_name: Offset
   use_sigmoid: 0
   norm: 
