@@ -76,6 +76,31 @@ class CALayer(nn.Module):
         y = self.conv_du(y)
         return x * y
 
+##########################################################################
+## Degradation Aware Layer
+class DALayer(nn.Module):
+    def __init__(self, channel, type_imb_dim, num_head=4, reduction=4, bias=False):
+        super(DALayer, self).__init__()
+        self.num_head = num_head
+        ## multi-head featrue: channel -> num_head * channel
+        self.conv_mh = nn.Conv2d(channel, channel*num_head, 1, padding=0, bias=bias)
+        self.conv_sig = nn.Sequential(
+                nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(type_imb_dim // reduction, num_head, 1, padding=0, bias=bias),
+                nn.Sigmoid()
+        )
+        # multi-tail
+        self.conv_mt = nn.Conv2d(channel*num_head, channel, 1, padding=0, bias=bias)
+
+    def forward(self, x, index_emb):
+        B,C,H,W = x.shape
+        y = self.conv_mh(x)
+        dg_attn = self.conv_sig(index_emb.view(B,-1,1,1))
+        out = y.view(B,self.num_head,C,H,W) * dg_attn.view(B,self.num_head,1,1,1)
+        out = self.conv_mt(out.view(B,self.num_head*C,H,W))
+        # torch.sum(out, dim=1)
+        return out
 
 ##########################################################################
 ## Channel Attention Block (CAB)
@@ -83,14 +108,18 @@ class CAB(nn.Module):
     def __init__(self, n_feat, kernel_size, reduction, bias, act, type_emb_dim=None, use_affine_level=False):
         super(CAB, self).__init__()
         
-        if type_emb_dim:
-            self.type_func = FeatureWiseAffine(type_emb_dim,n_feat, use_affine_level)
-        else:
-            self.type_func = None
+        # if type_emb_dim:
+        #     self.type_func = FeatureWiseAffine(type_emb_dim,n_feat, use_affine_level)
+        # else:
+        #     self.type_func = None
 
         # modules_body = []
         self.conv1 = conv(n_feat, n_feat, kernel_size, bias=bias)
         self.act1 = act
+        if type_emb_dim:
+            self.DA = DALayer(n_feat, type_emb_dim, bias=bias)
+        else:
+            self.DA = None
         self.conv2 = conv(n_feat, n_feat, kernel_size, bias=bias)
 
         self.CA = CALayer(n_feat, reduction, bias=bias)
@@ -99,8 +128,8 @@ class CAB(nn.Module):
     def forward(self, x, index_emb=None):
         # res = self.body(x)
         res = self.act1(self.conv1(x))
-        if self.type_func:
-            res = self.type_func(x, index_emb)
+        if self.DA:
+            res = self.DA(x, index_emb)
         res = self.conv2(res)
         res = self.CA(res)
         res += x

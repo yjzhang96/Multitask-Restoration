@@ -38,7 +38,7 @@ datasets:
     dataroot_noise: '/home/yjz/hdd/denoise_datasets/Denoise_whole/train_patch' 
     dataroot_light: '/home/yjz/hdd/lowlight_datasets/Lowlight_whole/train_patch' 
     patch_size: 256
-    batch_size: 2
+    batch_size: 1
     num_workers: 4
     use_shuffle: true
     Distributed: *Dist 
@@ -52,7 +52,7 @@ datasets:
 
 model:
   g_name: MPRnet_MH
-  n_feat: 64
+  n_feat: 48 
   degrade_num: 4 
   use_type_emb: True
   d_name: Offset

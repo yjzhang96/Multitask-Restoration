@@ -2,7 +2,7 @@
 dataset_mode: mix
 
 checkpoints: './checkpoints/MPR'
-model_name: &MODEL_NAME test_MPR_MH
+model_name: &MODEL_NAME MPR_baseline
 MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
 model_class: MPRnet
 resume_train: False 
@@ -10,7 +10,7 @@ which_epoch: latest
 start_epoch: 0
 save_epoch: 50
 crop_size: 256
-gpu: [0,1]
+gpu: [0]
 input_nc: 3
 output_nc: 3
 init_type: xavier
@@ -43,7 +43,7 @@ val:
   dataroot_light: '/home/yjz/hdd/lowlight_datasets/Lowlight_whole/test'    
 
 model:
-  g_name: MPRnet_MH
+  g_name: MPRnet
   n_feat: 64
   degrade_num: 4 
   use_type_emb: True
@@ -62,7 +62,7 @@ test:
   dataset:
     batch_size: 1
     data_len: -1
-    degrade_type: blur
-    dataroot: '/home/yjz/hdd/deblur_datasets/Deblur_whole/test/'    # path to validation data
+    degrade_type: noise
+    dataroot: '/home/yjz/hdd/denoise_datasets/Denoise_whole/test/'    # path to validation data
     patch_size: -1
   # test_dir: '/home/yjz/Image_deblur/Multitask_restore/exp_results/Mix_blur_noise/mixed/Gopro_gauss'   
