@@ -83,7 +83,7 @@ class DALayer(nn.Module):
         super(DALayer, self).__init__()
         self.num_head = num_head
         ## multi-head featrue: channel -> num_head * channel
-        self.conv_mh = nn.Conv2d(channel, channel*num_head, 1, padding=0, bias=bias)
+        self.conv_mh = nn.Conv2d(channel, channel*2, 1, padding=0, bias=bias)
         self.conv_sig = nn.Sequential(
                 nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
                 nn.ReLU(inplace=True),
@@ -91,14 +91,14 @@ class DALayer(nn.Module):
                 nn.Sigmoid()
         )
         # multi-tail
-        self.conv_mt = nn.Conv2d(channel*num_head, channel, 1, padding=0, bias=bias)
+        self.conv_mt = nn.Conv2d(channel*2, channel, 1, padding=0, bias=bias)
 
     def forward(self, x, index_emb):
         B,C,H,W = x.shape
         y = self.conv_mh(x)
         dg_attn = self.conv_sig(index_emb.view(B,-1,1,1))
-        out = y.view(B,self.num_head,C,H,W) * dg_attn.view(B,self.num_head,1,1,1)
-        out = self.conv_mt(out.view(B,self.num_head*C,H,W))
+        out = y.view(B,self.num_head,C//2,H,W) * dg_attn.view(B,self.num_head,1,1,1)
+        out = self.conv_mt(out.view(B,C*2,H,W))
         # torch.sum(out, dim=1)
         return out
 
