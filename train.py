@@ -94,7 +94,7 @@ else:
 
 
 ### initialize model
-if config['model_class'] == "MPRnet":
+if config['model_class'] == "MPRNet":
     Model = model_MPRnet
     os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
     os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
