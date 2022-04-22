@@ -224,16 +224,19 @@ class Decoder(nn.Module):
 
     def forward(self, outs, index_emb=None):
         enc1, enc2, enc3 = outs
+        dec3 = enc3
         for layer in self.decoder_level3:
-            dec3 = layer(enc3, index_emb)
+            dec3 = layer(dec3, index_emb)
 
         x = self.up32(dec3, self.skip_attn2(enc2, index_emb))
+        dec2 = x
         for layer in self.decoder_level2:
-            dec2 = layer(x, index_emb)
+            dec2 = layer(dec2, index_emb)
 
         x = self.up21(dec2, self.skip_attn1(enc1, index_emb))
+        dec1 = x
         for layer in self.decoder_level1:
-            dec1 = layer(x, index_emb)
+            dec1 = layer(dec1, index_emb)
 
         return [dec1,dec2,dec3]
 
@@ -281,8 +284,9 @@ class ORB(nn.Module):
         self.body = nn.ModuleList(modules_body)
 
     def forward(self, x, index_emb=None):
+        res = x 
         for layer in self.body:
-            res = layer(x, index_emb)
+            res = layer(res, index_emb)
         res = self.conv1(res)
         res += x
         return res

@@ -106,9 +106,9 @@ def define_net_G(config):
         model_g = Residual_Net(in_channel=3, out_channel=3, n_RDB=10,learn_residual=True)
     elif generator_name == 'DMPHN':
         model_g = DMPHN_deblur()
-    elif generator_name == 'MPRnet':
+    elif generator_name == 'MPRNet':
         model_g = MPRNet(n_feat=config['model']['n_feat'])
-    elif generator_name == 'MPRnet_MH':
+    elif generator_name == 'MPRNet_MH':
         model_g = MPRNet_MH(n_feat = config['model']['n_feat'],
                             degrade_num = config['model']['degrade_num'],
                             use_type_emb = config['model']['use_type_emb']

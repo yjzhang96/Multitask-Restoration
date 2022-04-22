@@ -97,7 +97,7 @@ else:
 if config['model_class'] == "MPRnet":
     Model = model_MPRnet
     os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
-
+    os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
 else:
     raise ValueError("Model class [%s] not recognized." % config['model_class'])
 
