@@ -83,7 +83,7 @@ class DALayer(nn.Module):
         super(DALayer, self).__init__()
         self.num_head = num_head
         ## multi-head featrue: channel -> num_head * channel
-        self.conv_mh = nn.Conv2d(channel, channel*4, 3, padding=0, bias=bias)
+        self.conv_mh = nn.Conv2d(channel, channel*4, 3, padding=1, bias=bias)
         self.conv_sig = nn.Sequential(
                 nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
                 nn.ReLU(inplace=True),
