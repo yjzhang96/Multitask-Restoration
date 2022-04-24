@@ -88,7 +88,7 @@ class DALayer(nn.Module):
                 nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(type_imb_dim // reduction, num_head, 1, padding=0, bias=bias),
-                nn.Sigmoid()
+                nn.Softmax(dim=1)
         )
         # multi-tail
         self.conv_mt = nn.Conv2d(channel*2, channel, 1, padding=0, bias=bias)
