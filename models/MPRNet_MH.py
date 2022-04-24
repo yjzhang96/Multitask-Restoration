@@ -83,7 +83,7 @@ class DALayer(nn.Module):
         super(DALayer, self).__init__()
         self.num_head = num_head
         ## multi-head featrue: channel -> num_head * channel
-        self.conv_mh = nn.Conv2d(channel, channel*2, 1, padding=0, bias=bias)
+        self.conv_mh = nn.Conv2d(channel, channel*4, 3, padding=0, bias=bias)
         self.conv_sig = nn.Sequential(
                 nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
                 nn.ReLU(inplace=True),
@@ -91,15 +91,15 @@ class DALayer(nn.Module):
                 nn.Softmax(dim=1)
         )
         # multi-tail
-        self.conv_mt = nn.Conv2d(channel*2, channel, 1, padding=0, bias=bias)
+        # self.conv_mt = nn.Conv2d(channel*2, channel, 1, padding=0, bias=bias)
 
     def forward(self, x, index_emb):
         B,C,H,W = x.shape
         y = self.conv_mh(x)
         dg_attn = self.conv_sig(index_emb.view(B,-1,1,1))
-        out = y.view(B,self.num_head,C//2,H,W) * dg_attn.view(B,self.num_head,1,1,1)
-        out = self.conv_mt(out.view(B,C*2,H,W))
-        # torch.sum(out, dim=1)
+        out = y.view(B,self.num_head,C,H,W) * dg_attn.view(B,self.num_head,1,1,1)
+        # out = self.conv_mt(out.view(B,C*2,H,W))
+        out = torch.sum(out, dim=1)
         return out
 
 ##########################################################################
@@ -118,9 +118,10 @@ class CAB(nn.Module):
         self.act1 = act
         if type_emb_dim:
             self.DA = DALayer(n_feat, type_emb_dim, bias=bias)
+            self.conv2 = None
         else:
             self.DA = None
-        self.conv2 = conv(n_feat, n_feat, kernel_size, bias=bias)
+            self.conv2 = conv(n_feat, n_feat, kernel_size, bias=bias)
 
         self.CA = CALayer(n_feat, reduction, bias=bias)
         # self.body = nn.Sequential(*modules_body)
@@ -129,8 +130,9 @@ class CAB(nn.Module):
         # res = self.body(x)
         res = self.act1(self.conv1(x))
         if self.DA:
-            res = self.DA(x, index_emb)
-        res = self.conv2(res)
+            res = self.DA(res, index_emb)
+        if self.conv2:
+            res = self.conv2(res)
         res = self.CA(res)
         res += x
         return res
