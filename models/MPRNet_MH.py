@@ -105,23 +105,23 @@ class DALayer(nn.Module):
 ##########################################################################
 ## Channel Attention Block (CAB)
 class CAB(nn.Module):
-    def __init__(self, n_feat, kernel_size, reduction, bias, act, type_emb_dim=None, use_affine_level=False):
+    def __init__(self, n_feat, kernel_size, reduction, bias, act, type_emb_dim=None, use_affine_level=True):
         super(CAB, self).__init__()
         
-        # if type_emb_dim:
-        #     self.type_func = FeatureWiseAffine(type_emb_dim,n_feat, use_affine_level)
-        # else:
-        #     self.type_func = None
+        if type_emb_dim:
+            self.DA = FeatureWiseAffine(type_emb_dim,n_feat, use_affine_level)
+        else:
+            self.DA = None
 
         # modules_body = []
         self.conv1 = conv(n_feat, n_feat, kernel_size, bias=bias)
         self.act1 = act
-        if type_emb_dim:
-            self.DA = DALayer(n_feat, type_emb_dim, bias=bias)
-            self.conv2 = None
-        else:
-            self.DA = None
-            self.conv2 = conv(n_feat, n_feat, kernel_size, bias=bias)
+        # if type_emb_dim:
+        #     self.DA = DALayer(n_feat, type_emb_dim, bias=bias)
+        #     self.conv2 = None
+        # else:
+        #     self.DA = None
+        self.conv2 = conv(n_feat, n_feat, kernel_size, bias=bias)
 
         self.CA = CALayer(n_feat, reduction, bias=bias)
         # self.body = nn.Sequential(*modules_body)
