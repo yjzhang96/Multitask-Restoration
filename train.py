@@ -18,7 +18,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 import data as Data
-from models import model_MPRnet
+from models import model_MPRnet, model_Diff_MPR
 from utils import utils 
 from tensorboardX import SummaryWriter
 # torch.manual_seed(0)
@@ -98,6 +98,11 @@ if config['model_class'] == "MPRNet":
     Model = model_MPRnet
     os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
     os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
+if config['model_class'] == "Diff_MPR":
+    Model = model_Diff_MPR
+    os.system('cp %s %s'%('models/model_Diff_MPR.py', model_save_dir))
+    os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
+    os.system('cp models/diffusion.py %s'%(model_save_dir)) 
 else:
     raise ValueError("Model class [%s] not recognized." % config['model_class'])
 
@@ -173,6 +178,8 @@ def validation_pair(iter):
 val_restore_psnr = validation_pair(config['start_epoch'])
 writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
 
+results = model.get_current_visuals()
+utils.save_train_sample(config, 0, results)
 best_psnr = 0.0
 total_iter = 0
 for epoch in range(config['start_epoch'], config['epoch']):
@@ -228,7 +235,7 @@ for epoch in range(config['start_epoch'], config['epoch']):
             display_loss(loss,epoch,config['epoch'],step,iter_per_epoch,time_ave)
 
             results = model.get_current_visuals()
-            utils.save_train_sample(config, epoch, results)
+            utils.save_train_sample(config, step, results)
             
             for key, value in loss.items():
                 writer.add_scalar(key,value,iter_per_epoch*epoch+step)
@@ -246,6 +253,8 @@ for epoch in range(config['start_epoch'], config['epoch']):
         if total_iter %config['val_freq'] == 0:
             val_restore_psnr  = validation_pair(total_iter)
             writer.add_scalar('PairPSNR/restore', val_restore_psnr, total_iter)
+            results = model.get_current_visuals()
+            utils.save_train_sample(config, step, results)
 
             if val_restore_psnr > best_psnr:
                 best_psnr = val_restore_psnr

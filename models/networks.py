@@ -1,9 +1,10 @@
+from telnetlib import GA
 import torch
 import torch.nn as nn
 import numpy as np
 from numpy.random import normal
 from numpy.linalg import svd
-from math import sqrt
+import math
 import torch.nn.functional as F
 import functools
 from .functions import ReverseLayerF
@@ -11,6 +12,7 @@ from .UNet_discriminator import UNetDiscriminator
 # from .DCN_v2.modules.modulated_deform_conv import ModulatedDeformConv_blur
 from .MPRNet import MPRNet
 from .MPRNet_MH import MPRNet_MH
+from .diffusion import GaussianDiffusion
 
 def _get_orthogonal_init_weights(weights):
     fan_out = weights.size(0)
@@ -118,46 +120,24 @@ def define_net_G(config):
     model_g = init_net(model_g,gpu_ids=config['gpu'])
     return model_g
 
-def define_net_D(config):
-    if config['model']['norm'] != None:
-        norm_layer = get_norm_layer(norm_type=config['model']['norm'])
+def define_diffusion(config, device):
+    net_G = define_net_G(config)
+    diff_config = config['model']['diffusion']
+    diffusion_name = diff_config['d_name']
+    if diffusion_name == 'sr3':
+        unet = UNet(in_channel=diff_config['in_channel'], out_channel=diff_config['out_channel'])
+        diff_model = GaussianDiffusion(
+            restore_fn=net_G, 
+            denoise_fn=unet,
+            loss_type=diff_config['loss_type'],
+            conditional=True,
+            schedule_opt=diff_config['beta_schedule'],
+            device = device
+        )
     else:
-        norm_layer = None
-    discriminator_name = config['model']['d_name']
-    if discriminator_name == 'unet':
-        model_d = UNetDiscriminator(inChannels=3, outChannels=2,use_sigmoid=config['model']['use_sigmoid'])
-    
-    elif discriminator_name == 'Offset':
-        model_d = OffsetNet(input_nc=3,nf=16,output_nc=2)
-    elif discriminator_name == 'Offset_DomClf':
-        model_d = OffsetNet_with_classifier(input_nc=3,nf=16,output_nc=2)
-    elif discriminator_name == 'Condition_offset':
-        if norm_layer:
-            model_d = OffsetNet_norm(input_nc=6,nf=16,output_nc=2, norm_layer=norm_layer)
-        else:
-            model_d = OffsetNet(input_nc=6,nf=16,output_nc=2, norm_layer=norm_layer)
-    else:
-        raise ValueError("discriminator Network [%s] not recognized." % discriminator_name)
-    model_d = init_net(model_d,gpu_ids=config['gpu'])
-    return model_d
-
-def define_global_D(config, input_nc=3, ndf=64, n_layers_D=3, norm='instance', use_sigmoid=False, num_D=2, getIntermFeat=False):        
-    norm_layer = get_norm_layer(norm_type=norm)   
-    patch_gan = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat=True)   
- 
-    # patch_gan = NLayerDiscriminator(n_layers=3,
-    #                                 norm_layer=norm_layer,
-    #                                 use_sigmoid=False)
-    # # print(netD)
-    # if len(gpu_ids) > 0:
-    #     assert(torch.cuda.is_available())
-    #     netD.cuda(gpu_ids[0])
-    # netD.apply(weights_init)
-    netD = init_net(patch_gan, gpu_ids=config['gpu'])
-    return netD
-
-
-
+        raise ValueError("Diffusion Network [%s] not recognized." % diffusion_name)
+    diff_model = init_net(diff_model, gpu_ids=config['gpu'])
+    return diff_model
     
 ############   Classes     ##############
 
@@ -375,197 +355,6 @@ def pixel_reshuffle(input, upscale_factor):
     return shuffle_out.view(batch_size, channels, out_height, out_width)
 
 
-class RDB_block(nn.Module):
-    def __init__(self, inChannels, growRate, kSize=3):
-        super(RDB_block, self).__init__()
-        Cin = inChannels
-        G = growRate
-        self.conv = nn.Sequential(*[
-            nn.Conv2d(Cin, G, kSize, padding=(kSize - 1) // 2, stride=1),
-            nn.ReLU()
-        ])
-
-    def forward(self, x):
-        out = self.conv(x)
-        return torch.cat((x, out), 1)
-
-
-class RDB(nn.Module):
-    def __init__(self, growRate0, growRate, nConvLayers, kSize=3):
-        super(RDB, self).__init__()
-        G0 = growRate0
-        G = growRate
-        C = nConvLayers
-
-        convs = []
-        for c in range(C):
-            convs.append(RDB_block(G0 + c * G, G))
-        self.convs = nn.Sequential(*convs)
-
-        # Local Feature Fusion
-        self.LFF = nn.Conv2d(G0 + C * G, G0, 1, padding=0, stride=1)
-
-    def forward(self, x):
-        return self.LFF(self.convs(x)) + x
-
-# Residual dense block (RDB) architecture
-
-class make_dense_plus(nn.Module):
-    def __init__(self, nChannels, growthRate, kernel_size=3):
-        super(make_dense_plus, self).__init__()
-        self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=kernel_size, padding=(kernel_size-1)//2, bias=True)
-        self.conv2 = nn.Conv2d(growthRate, nChannels, kernel_size=kernel_size, padding=(kernel_size-1)//2, bias=True)
-    def forward(self, x):
-        # import ipdb;ipdb.set_trace()
-        out = self.conv1(x)
-        out = F.leaky_relu(out,negative_slope=0.2)
-        out = self.conv2(out)
-        out = torch.tanh(out)/2
-        # import ipdb; ipdb.set_trace()
-        # out = torch.cat((x, out), 1)
-        out = x + out
-        return out
-        
-class ResDenseblock_plus(nn.Module):
-  def __init__(self, nChannels, nDenselayer, growthRate=32):
-    super(ResDenseblock_plus, self).__init__()
-    nChannels_ = nChannels
-    modules = []
-    for i in range(nDenselayer):    
-        modules.append(make_dense_plus(nChannels_, growthRate))
-        # nChannels_ += growthRate 
-    self.dense_layers = nn.Sequential(*modules)    
-    # self.conv_1x1 = nn.Conv2d(nChannels_, nChannels, kernel_size=1, padding=0, bias=True)
-  def forward(self, x):
-    # import ipdb;ipdb.set_trace()
-    out = self.dense_layers(x)
-    # out = self.conv_1x1(out)
-    out = out + x
-    return out
-
-class RDN_residual_deblur(nn.Module):
-    def __init__(self):
-        super(RDN_residual_deblur, self).__init__()
-        self.G0 = 96
-        kSize = 3
-
-        # number of RDB blocks, conv layers, out channels
-        self.D = 20
-        self.C = 5
-        self.G = 48
-
-        # Shallow feature extraction net
-        self.SFENet1 = nn.Conv2d(32, self.G0, 5, padding=2, stride=1)
-        self.SFENet2 = nn.Conv2d(self.G0, self.G0, kSize, padding=(kSize - 1) // 2, stride=1)
-
-        # Redidual dense blocks and dense feature fusion
-        self.RDBs = nn.ModuleList()
-        for i in range(self.D):
-            self.RDBs.append(
-                RDB(growRate0=self.G0, growRate=self.G, nConvLayers=self.C)
-            )
-
-        # Global Feature Fusion
-        self.GFF = nn.Sequential(*[
-            nn.Conv2d(self.D * self.G0, self.G0, 1, padding=0, stride=1),
-            nn.Conv2d(self.G0, self.G0, kSize, padding=(kSize - 1) // 2, stride=1)
-        ])
-
-        # Up-sampling net
-        self.UPNet = nn.Sequential(*[
-            nn.Conv2d(self.G0, 256, kSize, padding=(kSize - 1) // 2, stride=1),
-            nn.PixelShuffle(2),
-            nn.Conv2d(64, 12, kSize, padding=(kSize - 1) // 2, stride=1)
-        ])
-
-        # self.ResOut = ResDenseblock_plus(6,3,growthRate=32)
-
-    def forward(self, B1, B2, F12):
-        B_shuffle = pixel_reshuffle(torch.cat((B1, B2,F12), 1), 2)
-        f__1 = self.SFENet1(B_shuffle)
-        x = self.SFENet2(f__1)
-        RDBs_out = []
-        for i in range(self.D):
-            x = self.RDBs[i](x)
-            RDBs_out.append(x)
-        x = self.GFF(torch.cat(RDBs_out, 1))
-        x += f__1
-
-        # residual output
-        F1, F2, F3, F4 = torch.split(self.UPNet(x) + torch.cat((B1, B1, B2, B2), 1), 3, 1)
-        # direct output
-        # F1, F2, F3, F4 = torch.split(self.UPNet(x), 3, 1)
-        
-        # resdense output
-        # Res_1, Res_2 = torch.split(self.UPNet(x), 6, 1)
-        # # import ipdb; ipdb.set_trace()
-
-        # F1, F2 = torch.split(self.ResOut(Res_1 + torch.cat((B1, B1), 1)), 3, 1)
-        # F3, F4 = torch.split(self.ResOut(Res_2 + torch.cat((B2, B2), 1)), 3, 1)
-        return F1, F2, F3, F4
-
-
-
-
-class make_dense(nn.Module):
-  def __init__(self, nChannels, growthRate, kernel_size=3):
-    super(make_dense, self).__init__()
-    self.conv1 = nn.Conv2d(nChannels, growthRate, kernel_size=kernel_size, padding=(kernel_size-1)//2, bias=True)
-    # self.conv2 = nn.Conv2d(growthRate, growthRate, kernel_size=kernel_size, padding=(kernel_size-1)//2, bias=True)
-  def forward(self, x):
-    # import ipdb;ipdb.set_trace()
-    out = self.conv1(x)
-    out = F.leaky_relu(out,negative_slope=0.2)
-    # out = self.conv2(out)
-    out = torch.cat((x, out), 1)
-    # out = x + out
-    return out
-
-# Residual dense block (RDB) architecture
-class ResDenseblock(nn.Module):
-  def __init__(self, nChannels, nDenselayer, growthRate=32):
-    super(ResDenseblock, self).__init__()
-    nChannels_ = nChannels
-    modules = []
-    for i in range(nDenselayer):    
-        modules.append(make_dense(nChannels_, growthRate))
-        nChannels_ += growthRate 
-    self.dense_layers = nn.Sequential(*modules)    
-    self.conv_1x1 = nn.Conv2d(nChannels_, nChannels, kernel_size=1, padding=0, bias=True)
-  def forward(self, x):
-    # import ipdb;ipdb.set_trace()
-    out = self.dense_layers(x)
-    out = self.conv_1x1(out)
-    out = out + x
-    return out
-
-class Bottleneck(nn.Module):
-    def __init__(self,nChannels,kernel_size=3):
-        super(Bottleneck,self).__init__()
-        self.conv1 = nn.Conv2d(nChannels, nChannels*2, kernel_size=1, 
-                                padding=0, bias=True)
-        self.lReLU1 = nn.LeakyReLU(0.2, True)
-        self.conv2 = nn.Conv2d(nChannels*2, nChannels, kernel_size=kernel_size, 
-                                padding=(kernel_size-1)//2, bias=True)
-        self.lReLU2 = nn.LeakyReLU(0.2, True)
-        self.model = nn.Sequential(self.conv1,self.lReLU1,self.conv2,self.lReLU2)
-    def forward(self,x):
-        out = self.model(x)
-        return out
-
-class SpaceToDepth(nn.Module):
-    def __init__(self, block_size):
-        super().__init__()
-        self.bs = block_size
-    def forward(self, x):
-        N, C, H, W = x.size()
-        x = x.view(N, C, H // self.bs, self.bs, W // self.bs, self.bs)  # (N, C, H//bs, bs, W//bs, bs)
-        x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # (N, bs, bs, C, H//bs, W//bs)
-        x = x.view(N, C * (self.bs ** 2), H // self.bs, W // self.bs)  # (N, C*bs^2, H//bs, W//bs)
-        return x
-
-
-
 class Residual_Net(nn.Module):
     def __init__(self, in_channel, out_channel, n_RDB,learn_residual=True):
         super(Residual_Net, self).__init__()
@@ -622,186 +411,250 @@ class Residual_Net(nn.Module):
         else:
             return x
 
-class Encoder(nn.Module):
-    def __init__(self):
-        super(Encoder, self).__init__()
-        #Conv1
-        self.layer1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-        self.layer2 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1)
-            )
-        self.layer3 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1)
-            )
-        #Conv2
-        self.layer5 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.layer6 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1)
-            )
-        self.layer7 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1)
-            )
-        #Conv3
-        self.layer9 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
-        self.layer10 = nn.Sequential(
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1)
-            )
-        self.layer11 = nn.Sequential(
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1)
-            )
-        
+
+########################## UNet for Diffusion model ########################
+def exists(x):
+    return x is not None
+
+# PositionalEncoding Source： https://github.com/lmnt-com/wavegrad/blob/master/src/wavegrad/model.py
+class PositionalEncoding(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, noise_level):
+        count = self.dim // 2
+        step = torch.arange(count, dtype=noise_level.dtype,
+                            device=noise_level.device) / count
+        encoding = noise_level.unsqueeze(
+            1) * torch.exp(-math.log(1e4) * step.unsqueeze(0))
+        encoding = torch.cat(
+            [torch.sin(encoding), torch.cos(encoding)], dim=-1)
+        return encoding
+
+
+class FeatureWiseAffine(nn.Module):
+    def __init__(self, in_channels, out_channels, use_affine_level=False):
+        super(FeatureWiseAffine, self).__init__()
+        self.use_affine_level = use_affine_level
+        self.noise_func = nn.Sequential(
+            nn.Linear(in_channels, out_channels*(1+self.use_affine_level))
+        )
+
+    def forward(self, x, noise_embed):
+        batch = x.shape[0]
+        if self.use_affine_level:
+            gamma, beta = self.noise_func(noise_embed).view(
+                batch, -1, 1, 1).chunk(2, dim=1)
+            x = (1 + gamma) * x + beta
+        else:
+            x = x + self.noise_func(noise_embed).view(batch, -1, 1, 1)
+        return x
+
+
+class Swish(nn.Module):
     def forward(self, x):
-        #Conv1
-        x = self.layer1(x)
-        x = self.layer2(x) + x
-        x = self.layer3(x) + x
-        #Conv2
-        x = self.layer5(x)
-        x = self.layer6(x) + x
-        x = self.layer7(x) + x
-        #Conv3
-        x = self.layer9(x)    
-        x = self.layer10(x) + x
-        x = self.layer11(x) + x 
+        return x * torch.sigmoid(x)
+
+
+class Upsample(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.up = nn.Upsample(scale_factor=2, mode="nearest")
+        self.conv = nn.Conv2d(dim, dim, 3, padding=1)
+
+    def forward(self, x):
+        return self.conv(self.up(x))
+
+
+class Downsample(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.conv = nn.Conv2d(dim, dim, 3, 2, 1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+# building block modules
+
+
+class Block(nn.Module):
+    def __init__(self, dim, dim_out, groups=32, dropout=0):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.GroupNorm(groups, dim),
+            Swish(),
+            nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
+            nn.Conv2d(dim, dim_out, 3, padding=1)
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ResnetBlock(nn.Module):
+    def __init__(self, dim, dim_out, noise_level_emb_dim=None, dropout=0, use_affine_level=False, norm_groups=32):
+        super().__init__()
+        self.noise_func = FeatureWiseAffine(
+            noise_level_emb_dim, dim_out, use_affine_level)
+
+        self.block1 = Block(dim, dim_out, groups=norm_groups)
+        self.block2 = Block(dim_out, dim_out, groups=norm_groups, dropout=dropout)
+        self.res_conv = nn.Conv2d(
+            dim, dim_out, 1) if dim != dim_out else nn.Identity()
+
+    def forward(self, x, time_emb):
+        b, c, h, w = x.shape
+        h = self.block1(x)
+        h = self.noise_func(h, time_emb)
+        h = self.block2(h)
+        return h + self.res_conv(x)
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, in_channel, n_head=1, norm_groups=32):
+        super().__init__()
+
+        self.n_head = n_head
+
+        self.norm = nn.GroupNorm(norm_groups, in_channel)
+        self.qkv = nn.Conv2d(in_channel, in_channel * 3, 1, bias=False)
+        self.out = nn.Conv2d(in_channel, in_channel, 1)
+
+    def forward(self, input):
+        batch, channel, height, width = input.shape
+        n_head = self.n_head
+        head_dim = channel // n_head
+
+        norm = self.norm(input)
+        qkv = self.qkv(norm).view(batch, n_head, head_dim * 3, height, width)
+        query, key, value = qkv.chunk(3, dim=2)  # bhdyx
+
+        attn = torch.einsum(
+            "bnchw, bncyx -> bnhwyx", query, key
+        ).contiguous() / math.sqrt(channel)
+        attn = attn.view(batch, n_head, height, width, -1)
+        attn = torch.softmax(attn, -1)
+        attn = attn.view(batch, n_head, height, width, height, width)
+
+        out = torch.einsum("bnhwyx, bncyx -> bnchw", attn, value).contiguous()
+        out = self.out(out.view(batch, channel, height, width))
+
+        return out + input
+
+
+class ResnetBlocWithAttn(nn.Module):
+    def __init__(self, dim, dim_out, *, noise_level_emb_dim=None, norm_groups=32, dropout=0, with_attn=False):
+        super().__init__()
+        self.with_attn = with_attn
+        self.res_block = ResnetBlock(
+            dim, dim_out, noise_level_emb_dim, norm_groups=norm_groups, dropout=dropout)
+        if with_attn:
+            self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
+
+    def forward(self, x, time_emb):
+        x = self.res_block(x, time_emb)
+        if(self.with_attn):
+            x = self.attn(x)
         return x
 
-class Decoder(nn.Module):
-    def __init__(self):
-        super(Decoder, self).__init__()        
-        # Deconv3
-        self.layer13 = nn.Sequential(
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1)
+
+class UNet(nn.Module):
+    def __init__(
+        self,
+        in_channel=6,
+        out_channel=3,
+        inner_channel=32,
+        norm_groups=32,
+        channel_mults=(1, 2, 4, 8, 8),
+        attn_res=[8],
+        res_blocks=3,
+        dropout=0,
+        with_noise_level_emb=True,
+        image_size=256
+    ):
+        super().__init__()
+
+        if with_noise_level_emb:
+            noise_level_channel = inner_channel
+            self.noise_level_mlp = nn.Sequential(
+                PositionalEncoding(inner_channel),
+                nn.Linear(inner_channel, inner_channel * 4),
+                Swish(),
+                nn.Linear(inner_channel * 4, inner_channel)
             )
-        self.layer14 = nn.Sequential(
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1)
-            )
-        self.layer16 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
-        #Deconv2
-        self.layer17 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1)
-            )
-        self.layer18 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1)
-            )
-        self.layer20 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
-        #Deconv1
-        self.layer21 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1)
-            )
-        self.layer22 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1)
-            )
-        self.layer24 = nn.Conv2d(32, 3, kernel_size=3, padding=1)
-        
-    def forward(self,x):        
-        #Deconv3
-        x = self.layer13(x) + x
-        x = self.layer14(x) + x
-        x = self.layer16(x)                
-        #Deconv2
-        x = self.layer17(x) + x
-        x = self.layer18(x) + x
-        x = self.layer20(x)
-        #Deconv1
-        x = self.layer21(x) + x
-        x = self.layer22(x) + x
-        x = self.layer24(x)
-        return x
+        else:
+            noise_level_channel = None
+            self.noise_level_mlp = None
 
-class DMPHN_deblur(nn.Module):
-    def __init__(self):
-        super(DMPHN_deblur,self).__init__()
-        
-        self.encoder_lv1 = Encoder()
-        self.encoder_lv2 = Encoder()
-        self.encoder_lv3 = Encoder()
-        self.encoder_lv4 = Encoder()
+        num_mults = len(channel_mults)
+        pre_channel = inner_channel
+        feat_channels = [pre_channel]
+        now_res = image_size
+        downs = [nn.Conv2d(in_channel, inner_channel,
+                           kernel_size=3, padding=1)]
+        for ind in range(num_mults):
+            is_last = (ind == num_mults - 1)
+            use_attn = (now_res in attn_res)
+            channel_mult = inner_channel * channel_mults[ind]
+            for _ in range(0, res_blocks):
+                downs.append(ResnetBlocWithAttn(
+                    pre_channel, channel_mult, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups, dropout=dropout, with_attn=use_attn))
+                feat_channels.append(channel_mult)
+                pre_channel = channel_mult
+            if not is_last:
+                downs.append(Downsample(pre_channel))
+                feat_channels.append(pre_channel)
+                now_res = now_res//2
+        self.downs = nn.ModuleList(downs)
 
-        self.decoder_lv1 = Decoder()
-        self.decoder_lv2 = Decoder()
-        self.decoder_lv3 = Decoder()
-        self.decoder_lv4 = Decoder()
+        self.mid = nn.ModuleList([
+            ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
+                               dropout=dropout, with_attn=True),
+            ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
+                               dropout=dropout, with_attn=False)
+        ])
 
-    def forward(self, image):
-        images_lv1 = image
-        H = images_lv1.size(2)
-        W = images_lv1.size(3)
+        ups = []
+        for ind in reversed(range(num_mults)):
+            is_last = (ind < 1)
+            use_attn = (now_res in attn_res)
+            channel_mult = inner_channel * channel_mults[ind]
+            for _ in range(0, res_blocks+1):
+                ups.append(ResnetBlocWithAttn(
+                    pre_channel+feat_channels.pop(), channel_mult, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
+                        dropout=dropout, with_attn=use_attn))
+                pre_channel = channel_mult
+            if not is_last:
+                ups.append(Upsample(pre_channel))
+                now_res = now_res*2
 
-        images_lv2_1 = images_lv1[:,:,0:int(H/2),:]
-        images_lv2_2 = images_lv1[:,:,int(H/2):H,:]
-        images_lv3_1 = images_lv2_1[:,:,:,0:int(W/2)]
-        images_lv3_2 = images_lv2_1[:,:,:,int(W/2):W]
-        images_lv3_3 = images_lv2_2[:,:,:,0:int(W/2)]
-        images_lv3_4 = images_lv2_2[:,:,:,int(W/2):W]
-        images_lv4_1 = images_lv3_1[:,:,0:int(H/4),:]
-        images_lv4_2 = images_lv3_1[:,:,int(H/4):int(H/2),:]
-        images_lv4_3 = images_lv3_2[:,:,0:int(H/4),:]
-        images_lv4_4 = images_lv3_2[:,:,int(H/4):int(H/2),:]
-        images_lv4_5 = images_lv3_3[:,:,0:int(H/4),:]
-        images_lv4_6 = images_lv3_3[:,:,int(H/4):int(H/2),:]
-        images_lv4_7 = images_lv3_4[:,:,0:int(H/4),:]
-        images_lv4_8 = images_lv3_4[:,:,int(H/4):int(H/2),:]
+        self.ups = nn.ModuleList(ups)
 
-        feature_lv4_1 = self.encoder_lv4(images_lv4_1)
+        self.final_conv = Block(pre_channel, out_channel, groups=norm_groups)
 
-        feature_lv4_2 = self.encoder_lv4(images_lv4_2)
-        feature_lv4_3 = self.encoder_lv4(images_lv4_3)
-        feature_lv4_4 = self.encoder_lv4(images_lv4_4)
-        feature_lv4_5 = self.encoder_lv4(images_lv4_5)
-        feature_lv4_6 = self.encoder_lv4(images_lv4_6)
-        feature_lv4_7 = self.encoder_lv4(images_lv4_7)
-        feature_lv4_8 = self.encoder_lv4(images_lv4_8)
-        feature_lv4_top_left = torch.cat((feature_lv4_1, feature_lv4_2), 2)
-        feature_lv4_top_right = torch.cat((feature_lv4_3, feature_lv4_4), 2)
-        feature_lv4_bot_left = torch.cat((feature_lv4_5, feature_lv4_6), 2)
-        feature_lv4_bot_right = torch.cat((feature_lv4_7, feature_lv4_8), 2)
-        feature_lv4_top = torch.cat((feature_lv4_top_left, feature_lv4_top_right), 3)
-        feature_lv4_bot = torch.cat((feature_lv4_bot_left, feature_lv4_bot_right), 3)
-        feature_lv4 = torch.cat((feature_lv4_top, feature_lv4_bot), 2)
-        residual_lv4_top_left = self.decoder_lv4(feature_lv4_top_left)
-        residual_lv4_top_right = self.decoder_lv4(feature_lv4_top_right)
-        residual_lv4_bot_left = self.decoder_lv4(feature_lv4_bot_left)
-        residual_lv4_bot_right = self.decoder_lv4(feature_lv4_bot_right)
+    def forward(self, x, time):
+        t = self.noise_level_mlp(time) if exists(
+            self.noise_level_mlp) else None
 
-        feature_lv3_1 = self.encoder_lv3(images_lv3_1 + residual_lv4_top_left)
-        feature_lv3_2 = self.encoder_lv3(images_lv3_2 + residual_lv4_top_right)
-        feature_lv3_3 = self.encoder_lv3(images_lv3_3 + residual_lv4_bot_left)
-        feature_lv3_4 = self.encoder_lv3(images_lv3_4 + residual_lv4_bot_right)
-        feature_lv3_top = torch.cat((feature_lv3_1, feature_lv3_2), 3) + feature_lv4_top
-        feature_lv3_bot = torch.cat((feature_lv3_3, feature_lv3_4), 3) + feature_lv4_bot
-        feature_lv3 = torch.cat((feature_lv3_top, feature_lv3_bot), 2)
-        residual_lv3_top = self.decoder_lv3(feature_lv3_top)
-        residual_lv3_bot = self.decoder_lv3(feature_lv3_bot)
+        feats = []
+        for layer in self.downs:
+            if isinstance(layer, ResnetBlocWithAttn):
+                x = layer(x, t)
+            else:
+                x = layer(x)
+            feats.append(x)
+        for layer in self.mid:
+            if isinstance(layer, ResnetBlocWithAttn):
+                x = layer(x, t)
+            else:
+                x = layer(x)
 
-        feature_lv2_1 = self.encoder_lv2(images_lv2_1 + residual_lv3_top)
-        feature_lv2_2 = self.encoder_lv2(images_lv2_2 + residual_lv3_bot)
-        feature_lv2 = torch.cat((feature_lv2_1, feature_lv2_2), 2) + feature_lv3
-        residual_lv2 = self.decoder_lv2(feature_lv2)
+        for layer in self.ups:
+            if isinstance(layer, ResnetBlocWithAttn):
+                x = layer(torch.cat((x, feats.pop()), dim=1), t)
+            else:
+                x = layer(x)
 
-        feature_lv1 = self.encoder_lv1(images_lv1 + residual_lv2) + feature_lv2
-        deblur_image = self.decoder_lv1(feature_lv1)
-        return deblur_image
+        return self.final_conv(x)
