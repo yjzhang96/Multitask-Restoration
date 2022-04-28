@@ -49,16 +49,17 @@ else:
     image_save_dir = os.path.join(test_config['result_dir'],config['model_name']) 
 
 path_root = test_config['dataset']['dataroot']
-if "denoise_dataset" in path_root:
-    task_name = "denoise"
-elif "derain_dataset" in path_root:
-    task_name = "derain"
-elif "deblur_dataset" in path_root:
-    task_name = "deblur"
-elif "dehaze_dataset" in path_root:
-    task_name = "dehaze"
-elif "Mix" in path_root or "mix" in path_root:
-    task_name = "mixed"
+# if "denoise_dataset" in path_root:
+#     task_name = "denoise"
+# elif "derain_dataset" in path_root:
+#     task_name = "derain"
+# elif "deblur_dataset" in path_root:
+#     task_name = "deblur"
+# elif "dehaze_dataset" in path_root:
+#     task_name = "dehaze"
+# elif "Mix" in path_root or "mix" in path_root:
+#     task_name = "mixed"
+task_name = test_config['dataset']['degrade_type']
 image_save_dir = os.path.join(image_save_dir,task_name)
 os.makedirs(image_save_dir,exist_ok=True)
 
@@ -97,7 +98,7 @@ def test_one_dir():
         # if index%2 == 0:
         start_time_i = time.time()
         model.set_input(batch_data)
-        psnr = model.test(validation=True)
+        psnr = model.test(validation=True, multi_step=test_config['multi_step'])
             
         image_path = model.get_image_path()
         print('[time:%.3f]processing %s PSNR: %.2f'%(time.time()-start_time_i, image_path['B_path'],psnr))
@@ -107,7 +108,8 @@ def test_one_dir():
         results = model.get_current_visuals()
         utils.save_test_images(config, image_save_dir, results, image_path)
             
-    message = 'test %s model on %s PSNR: %.2f'%(config['model_name'], test_config['dataset']['dataroot'], t_test_psnr/cnt)
+    message = 'Test %s model on %s [Type:%s] PSNR: %.2f'%(config['model_name'], test_config['dataset']['dataroot'],
+                                                          test_config['dataset']['degrade_type'], t_test_psnr/cnt)
     print(message)
     write_txt(record_file, message)
     print('Test time %.3f'%(time.time()-start_time))

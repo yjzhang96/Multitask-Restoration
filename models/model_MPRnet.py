@@ -77,7 +77,8 @@ class RestoreNet():
 
     def optimize(self):
         degrade_num = self.config['model']['degrade_num']
-        self.restored = self.net_G(self.input, self.index)
+        restored_list = self.net_G(self.input, self.index)
+        self.restored = restored_list[0]
 
         alter_type = random.random()
         if alter_type < 0.25:
@@ -85,9 +86,9 @@ class RestoreNet():
             self.index = (self.index + alter_index)%degrade_num
             self.target = self.input
 
-        loss_char_j = [self.criterion_char(self.restored[j],self.target) for j in range(len(self.restored))]
+        loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
         self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
-        loss_edge_j = [self.criterion_edge(self.restored[j],self.target) for j in range(len(self.restored))]
+        loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
         self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
         self.loss = (self.loss_char) + (0.05*self.loss_edge)       
         
@@ -104,11 +105,38 @@ class RestoreNet():
                             ('loss_tot',self.loss.item()),
                             ])
     
-    def test(self, validation = False):
+    @staticmethod
+    def trans_func(index):
+        ## denoise then end
+        if index == 2: 
+            return index-3
+        ## derain then denoise
+        if index == 1:
+            return index-1
+        ## deblur then end
+        if index == 0:
+            return index+2
+
+    def test(self, validation = False, multi_step = False):
         with torch.no_grad():
             B,C,H,W = self.target.shape
-            self.restored = self.net_G(self.input,self.index)
             
+            output = self.input
+            restore_step = self.index
+            if multi_step:
+                while(restore_step>=0):
+                    print('degrade now:',restore_step)
+                    restore_list = self.net_G(output,restore_step)
+                    output = restore_list[0]
+                    # restore_step -= 1
+                    restore_step = self.trans_func(restore_step)
+                restore_list = self.net_G(output, restore_step+1)
+                output = restore_list[0]
+                self.restored = output
+            else:
+                restore_list = self.net_G(output,restore_step)
+                self.restored = restore_list[0]
+
             
         # calculate PSNR
         def PSNR(img1, img2):
@@ -118,7 +146,7 @@ class RestoreNet():
         if validation:
             
             sharp_psnr = 0
-            sharp_psnr += PSNR(self.target,self.restored[0]) 
+            sharp_psnr += PSNR(self.target,self.restored) 
             return sharp_psnr
 
     def save(self,epoch):
@@ -161,12 +189,12 @@ class RestoreNet():
     def get_current_visuals(self):
         input = utils.tensor2im(self.input)
         target = utils.tensor2im(self.target)
-        restored = utils.tensor2im(self.restored[0])
+        restored = utils.tensor2im(self.restored)
         return OrderedDict([('input',input),('target',target),('restored',restored)])
     
     def get_tensorboard_images(self):
         
-        paired_train_img = OrderedDict([('input',self.input[0]),('target',self.target[0]),('restored',self.restored[0][0])])
+        paired_train_img = OrderedDict([('input',self.input[0]),('target',self.target[0]),('restored',self.restored[0])])
         return paired_train_img
 
     def get_image_path(self):
