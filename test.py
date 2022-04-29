@@ -14,7 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 
 from utils import utils 
-from models import model_MPRnet
+from models import model_MPRnet, model_Diff_MPR
 # from data import dataloader_pair, dataloader_pair_mix
 import data as Data
 parser = argparse.ArgumentParser()
@@ -68,6 +68,8 @@ os.makedirs(image_save_dir,exist_ok=True)
 ### initialize model
 if config['model_class'] == "MPRnet":
     Model = model_MPRnet
+if config['model_class'] == "Diff_MPR":
+    Model = model_Diff_MPR
 else:
     raise ValueError("Model class [%s] not recognized." % config['model_class'])
 
@@ -98,7 +100,7 @@ def test_one_dir():
         # if index%2 == 0:
         start_time_i = time.time()
         model.set_input(batch_data)
-        psnr = model.test(validation=True, multi_step=test_config['multi_step'])
+        psnr = model.test(validation=True, multi_step=test_config['multi_step'],continous=test_config['continous'])
             
         image_path = model.get_image_path()
         print('[time:%.3f]processing %s PSNR: %.2f'%(time.time()-start_time_i, image_path['B_path'],psnr))

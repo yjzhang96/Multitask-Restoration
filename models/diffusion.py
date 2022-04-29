@@ -203,7 +203,7 @@ class GaussianDiffusion(nn.Module):
         if continous:
             return ret_img
         else:
-            return ret_img[-1]
+            return ret_img[-1].unsqueeze(0)
 
     @torch.no_grad()
     def p_sample_skip(self, denoise_fn, xt, cond, t, next_t, eta=0):

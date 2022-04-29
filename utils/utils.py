@@ -3,6 +3,8 @@ import numpy as np
 import os
 from PIL import Image
 import cv2
+from torchvision.utils import make_grid
+import math 
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -20,9 +22,19 @@ def str2bool(v):
 # Converts a Tensor into a Numpy array
 # |imtype|: the desired type of the converted numpy array
 def tensor2im(image_tensor, imtype=np.uint8):
-    image_numpy = image_tensor[-1].cpu().detach().numpy()
-    image_numpy = np.clip(np.transpose(image_numpy, (1, 2, 0)),0,1)  * 255.0
-    return image_numpy.astype(imtype)
+    image_tensor = image_tensor.squeeze().cpu().detach()
+    n_dim = len(image_tensor.shape)
+    if n_dim == 4:
+        n_img = len(image_tensor)
+        img_np = make_grid(image_tensor, nrow=int(
+            math.sqrt(n_img)), normalize=False).numpy()
+        img_np = np.clip(np.transpose(img_np, (1, 2, 0)),0,1)  * 255.0
+    elif n_dim == 3:
+        img_np = image_tensor.numpy()
+        img_np = np.clip(np.transpose(img_np, (1, 2, 0)),0,1)  * 255.0
+    elif n_dim == 2:
+        img_np = image_tensor.numpy()
+    return img_np.astype(imtype)
 
 def load_image(filename, trans_list=None, size=None, scale=None):
     img = Image.open(filename)

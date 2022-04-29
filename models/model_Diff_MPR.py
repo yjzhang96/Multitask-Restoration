@@ -31,31 +31,31 @@ class RestoreNet():
                 device = torch.device('cpu')
 
         ### initial model and model parallel
-        self.net_diff = networks.define_diffusion(config, device)
-        # load pretrain net_diff
+        self.net_G = networks.define_diffusion(config, device)
+        # load pretrain net_G
         if config['model']['pretrain_G'] is not None:
             pretrain_path = config['model']['pretrain_G']
-            self.net_diff.restore_fn.load_state_dict(torch.load(pretrain_path))
+            self.net_G.restore_fn.load_state_dict(torch.load(pretrain_path,map_location='cpu'))
             print('--------- Load pretrained restore model:%s ---------'%pretrain_path)
         else:
-            print('--------- Train restore model from scratch ---------')
+            print('--------- Train restore model from scratch / Test model ---------')
         # DDP
         if config['Distributed'] and torch.cuda.device_count()>1:
             if config['resume_train'] or not config['is_training']:
                 self.load(config)
-            self.net_diff.to(device)
+            self.net_G.to(device)
             print("let's use", torch.cuda.device_count(),"GPUs!")
-            self.net_diff = torch.nn.parallel.DistributedDataParallel(
-                self.net_diff,
+            self.net_G = torch.nn.parallel.DistributedDataParallel(
+                self.net_G,
                 device_ids=[local_rank],
                 output_device=local_rank,
                 find_unused_parameters=True
             )
         # DP or CPU
         elif not config['Distributed']:
-            self.net_diff.to(device)
+            self.net_G.to(device)
             if len(config['gpu']) >1:
-                self.net_diff = torch.nn.DataParallel(self.net_diff, config['gpu'])
+                self.net_G = torch.nn.DataParallel(self.net_G, config['gpu'])
             if config['resume_train'] or not config['is_training']:
                 self.load(config)
 
@@ -67,7 +67,7 @@ class RestoreNet():
         self.criterion_edge = losses.EdgeLoss()
 
         if config['is_training']:
-            self.optimizer_G = torch.optim.Adam( self.net_diff.parameters(), lr=config['train']['lr_G'], betas=(0.9, 0.999) )
+            self.optimizer_G = torch.optim.Adam( self.net_G.parameters(), lr=config['train']['lr_G'], betas=(0.9, 0.999) )
             if config['resume_train']:
                 print("------loading learning rate------")
                 self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
@@ -82,7 +82,7 @@ class RestoreNet():
 
     def optimize(self):
         degrade_num = self.config['model']['degrade_num']
-        restored_list = self.net_diff.module.restore_fn(self.input, self.index)
+        restored_list = self.net_G.module.restore_fn(self.input, self.index)
         self.restored = restored_list[0]
 
         # alter_type = random.random()
@@ -97,13 +97,13 @@ class RestoreNet():
         self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
         self.restore_loss = (self.loss_char) + (0.05*self.loss_edge)       
         
-        self.diff_loss = self.net_diff(self.input, self.restored, self.target)
+        self.diff_loss = self.net_G(self.input, self.restored, self.target)
         
         self.loss = 0.5 * self.restore_loss + self.diff_loss
 
         self.optimizer_G.zero_grad()
         self.loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.net_diff.parameters(), 0.01)
+        torch.nn.utils.clip_grad_norm_(self.net_G.parameters(), 0.01)
         self.optimizer_G.step()
 
     def get_loss(self):
@@ -127,7 +127,7 @@ class RestoreNet():
             return index+2
     
     def diffusion_sample(self, input, restore_step, continous=False):
-        if self.config['diff_sample']['sample_type'] == "generalized":
+        if self.config['diff_sample']['sample_type'] == "ddim":
             tot_timestep = self.config['diff_sample']['n_timestep']
             if self.config['diff_sample']['skip_type'] == 'uniform':
                 skip = tot_timestep // self.config['diff_sample']['sample_step']
@@ -142,23 +142,23 @@ class RestoreNet():
                 seq = [int(s) for s in list(seq)] 
             # with torch.no_grad():
             if len(self.config['gpu']) > 1:
-                return self.net_diff.module.skip_restore(
+                return self.net_G.module.skip_restore(
                     input, restore_step, seq, continous)
             else:
-                return self.net_diff.skip_restore(
+                return self.net_G.skip_restore(
                     input, restore_step, seq, continous)
 
         elif self.config['diff_sample']['sample_type'] == "ddpm":
             # with torch.no_grad():
             if len(self.config['gpu']) > 1:
-                return self.net_diff.module.restore(
+                return self.net_G.module.restore(
                     input, restore_step, continous)
             else:
-                return self.net_diff.restore(
+                return self.net_G.restore(
                     input, restore_step, continous)
 
-    def test(self, validation = False, multi_step = False):
-        self.net_diff.eval()
+    def test(self, validation = False, multi_step = False, continous=False):
+        self.net_G.eval()
         with torch.no_grad():
             B,C,H,W = self.target.shape
             
@@ -167,13 +167,13 @@ class RestoreNet():
             if multi_step:
                 while(restore_step>=0):
                     print('degrade now:',restore_step)
-                    output = self.diffusion_sample(output,restore_step)
+                    output = self.diffusion_sample(output,restore_step,continous)
                     # restore_step -= 1
                     restore_step = self.trans_func(restore_step)
                 self.restored = output
             else:
-                self.restored = self.diffusion_sample(output,restore_step)
-        self.net_diff.train()
+                self.restored = self.diffusion_sample(output,restore_step,continous)
+        self.net_G.train()
             
         # calculate PSNR
         def PSNR(img1, img2):
@@ -189,9 +189,9 @@ class RestoreNet():
     def save(self,epoch):
         save_g_filename = 'G_net_%s.pth'%epoch
         if len(self.config['gpu'])>1:
-            torch.save(self.net_diff.module.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
+            torch.save(self.net_G.module.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
         else:
-            torch.save(self.net_diff.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
+            torch.save(self.net_G.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
         
         #     self.deblur_net.to(self.device)
 
@@ -199,12 +199,12 @@ class RestoreNet():
         load_path = os.path.join(config['checkpoints'], config['model_name'])
         load_G_file = load_path + '/' + 'G_net_%s.pth'%config['which_epoch']
         print(load_G_file) 
-        if len(self.config['gpu'])>1 and isinstance(self.net_diff, nn.DataParallel):
+        if len(self.config['gpu'])>1 and isinstance(self.net_G, nn.DataParallel):
             print('--------load model.module ----------') 
-            self.net_diff.module.load_state_dict(torch.load(load_G_file))
+            self.net_G.module.load_state_dict(torch.load(load_G_file))
         else:
             print('--------load model without .module ----------')
-            self.net_diff.load_state_dict(torch.load(load_G_file))
+            self.net_G.load_state_dict(torch.load(load_G_file))
         print('--------load model %s success!-------'%load_G_file)
         
         

@@ -242,7 +242,7 @@ for epoch in range(config['start_epoch'], config['epoch']):
 
 
         if total_iter % config['save_iter'] == 0:
-            model.save(total_iter)
+            # model.save(total_iter)
             print('End of Iteration [%d/%d] \t Time Taken: %d sec' % (total_iter, iter_per_epoch, time.time() - epoch_start_time))
         # paired_results = model.get_tensorboard_images()
         # writer.add_image('Pair/input', paired_results['input'],epoch)
