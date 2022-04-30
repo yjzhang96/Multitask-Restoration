@@ -99,7 +99,7 @@ class RestoreNet():
         
         self.diff_loss = self.net_G(self.input, self.restored, self.target)
         
-        self.loss = 0.5 * self.restore_loss + self.diff_loss
+        self.loss =  self.diff_loss
 
         self.optimizer_G.zero_grad()
         self.loss.backward()
