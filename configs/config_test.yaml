@@ -1,10 +1,10 @@
 ---
 dataset_mode: mix
 
-checkpoints: './checkpoints/MPR'
-model_name: &MODEL_NAME MPR_DAlayer_AttnSum
+checkpoints: './checkpoints/Diff'
+model_name: &MODEL_NAME MPR
 MPR_model: './pretrain_models/MPRnet/model_deblurring.pth'
-model_class: MPRnet
+model_class: Diff_MPR
 resume_train: False 
 which_epoch: latest
 start_epoch: 0
@@ -44,22 +44,39 @@ val:
 
 model:
   g_name: MPRNet_MH
+  pretrain_G: 
   n_feat: 48
   degrade_num: 4 
   use_type_emb: true
-  d_name: Offset
+  diffusion:
+     d_name: sr3
+     in_channel: 9
+     out_channel: 3
+     loss_type: l1
+     beta_schedule:
+      schedule: linear
+      n_timestep: 1000
+      linear_start: 1.0e-6
+      linear_end: 1.0e-2
   use_sigmoid: 0
   norm: 
 
+diff_sample:
+  sample_type: ddim #ddpm or ddim
+  skip_type: uniform
+  n_timestep: 1000
+  sample_step: 100
+
 
 test:
-  result_dir: ./exp_results
+  result_dir: ./exp_results/Diff
   save_dir: *MODEL_NAME
   verbose: True
   test_batch_size: 1
-  which_epoch: best
+  which_epoch: latest
   dataset_mode: pair
   multi_step: false
+  continous: False
   dataset:
     batch_size: 1
     data_len: -1

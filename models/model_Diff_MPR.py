@@ -53,11 +53,11 @@ class RestoreNet():
             )
         # DP or CPU
         elif not config['Distributed']:
+            if config['resume_train'] or not config['is_training']:
+                self.load(config)
             self.net_G.to(device)
             if len(config['gpu']) >1:
                 self.net_G = torch.nn.DataParallel(self.net_G, config['gpu'])
-            if config['resume_train'] or not config['is_training']:
-                self.load(config)
 
         ###Loss and Optimizer
         self.MSE = nn.MSELoss()
@@ -166,12 +166,13 @@ class RestoreNet():
             restore_step = self.index
             if multi_step:
                 while(restore_step>=0):
-                    print('degrade now:',restore_step)
+                    print('degrade index:',restore_step)
                     output = self.diffusion_sample(output,restore_step,continous)
                     # restore_step -= 1
                     restore_step = self.trans_func(restore_step)
                 self.restored = output
             else:
+                print('degrade index:',restore_step)
                 self.restored = self.diffusion_sample(output,restore_step,continous)
         self.net_G.train()
             
@@ -204,7 +205,7 @@ class RestoreNet():
             self.net_G.module.load_state_dict(torch.load(load_G_file))
         else:
             print('--------load model without .module ----------')
-            self.net_G.load_state_dict(torch.load(load_G_file))
+            self.net_G.load_state_dict(torch.load(load_G_file,map_location='cpu'))
         print('--------load model %s success!-------'%load_G_file)
         
         

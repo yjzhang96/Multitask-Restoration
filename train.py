@@ -54,13 +54,13 @@ if config['dataset_mode'] == 'pair':
             train_blur_set = Data.create_dataset(dataset_opt, phase, 'blur')
             train_blur_loader = Data.create_dataloader(
                 train_blur_set, dataset_opt, phase)
-            train_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
+            train_rain_set = Data.create_dataset(dataset_opt, phase, 'blur')
             train_rain_loader = Data.create_dataloader(
                 train_rain_set, dataset_opt, phase)
-            train_noise_set = Data.create_dataset(dataset_opt, phase, 'noise')
+            train_noise_set = Data.create_dataset(dataset_opt, phase, 'blur')
             train_noise_loader = Data.create_dataloader(
                 train_noise_set, dataset_opt, phase)
-            train_light_set = Data.create_dataset(dataset_opt, phase, 'lowlight')
+            train_light_set = Data.create_dataset(dataset_opt, phase, 'blur')
             train_light_loader = Data.create_dataloader(
                 train_light_set, dataset_opt, phase)
             train_degrade_num = dataset_opt['degrade_num']
@@ -181,11 +181,11 @@ writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
 results = model.get_current_visuals()
 utils.save_train_sample(config, 0, results)
 best_psnr = 0.0
-total_iter = 0
+iter_per_epoch = max(len(train_blur_loader),len(train_rain_loader),len(train_noise_loader))
+print('There is {:d} iteration in one epoch:'.format(iter_per_epoch))
+total_iter = config['start_epoch'] * iter_per_epoch
 for epoch in range(config['start_epoch'], config['epoch']):
     epoch_start_time = time.time()
-    iter_per_epoch = max(len(train_blur_loader),len(train_rain_loader),len(train_noise_loader))
-    print('There is {:d} iteration in one epoch:'.format(iter_per_epoch))
     blur_data_iter = iter(train_blur_loader)
     rain_data_iter = iter(train_rain_loader)
     noise_data_iter = iter(train_noise_loader)

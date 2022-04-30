@@ -98,6 +98,18 @@ def test_one_dir():
     print('--------testing begin----------')
     for index, batch_data in enumerate(test_dataloader):
         # if index%2 == 0:
+        input = batch_data['input']
+        target = batch_data['target']
+        h,w = input.shape[2], input.shape[3]
+        factor = 16
+        if h%16 != 0 or w%16 != 0:
+            H,W = ((h+factor)//factor)*factor, ((w+factor)//factor)*factor
+            padh = H-h if h%factor!=0 else 0
+            padw = W-w if w%factor!=0 else 0
+            input_ = F.pad(input, (0,padw,0,padh), 'reflect')
+            target_ = F.pad(target, (0,padw,0,padh), 'reflect')
+            batch_data['input'],batch_data['target'] = input_, target_
+        
         start_time_i = time.time()
         model.set_input(batch_data)
         psnr = model.test(validation=True, multi_step=test_config['multi_step'],continous=test_config['continous'])
@@ -107,6 +119,11 @@ def test_one_dir():
         t_test_psnr += psnr
         cnt += 1
 
+        if h%16 != 0 or w%16 != 0:
+            model.input = model.input[:,:,:h,:w]
+            model.target = model.target[:,:,:h,:w]
+            if len(model.restored) == 1:
+                model.restored = model.restored[:,:,:h,:w]
         results = model.get_current_visuals()
         utils.save_test_images(config, image_save_dir, results, image_path)
             
