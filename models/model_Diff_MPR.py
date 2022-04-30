@@ -71,7 +71,12 @@ class RestoreNet():
             if config['resume_train']:
                 print("------loading learning rate------")
                 self.get_current_lr_from_epoch(self.optimizer_G, config['train']['lr_G'], config['start_epoch'], config['epoch'])
-       
+
+        if config['train']['freeze_restore']:
+            for name, para in self.net_G.named_parameters():
+                print(name)
+                if "restore" in name:
+                    para.requires_grad = False 
 
     def set_input(self,batch_data):
         # self.input = batch_data['INPUT'].to(self.device)
