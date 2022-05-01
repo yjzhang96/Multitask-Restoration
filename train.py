@@ -184,16 +184,18 @@ best_psnr = 0.0
 iter_per_epoch = max(len(train_blur_loader),len(train_rain_loader),len(train_noise_loader))
 print('There is {:d} iteration in one epoch:'.format(iter_per_epoch))
 total_iter = config['start_epoch'] * iter_per_epoch
+iter_start_time = time.time()
 for epoch in range(config['start_epoch'], config['epoch']):
     epoch_start_time = time.time()
     blur_data_iter = iter(train_blur_loader)
     rain_data_iter = iter(train_rain_loader)
     noise_data_iter = iter(train_noise_loader)
     light_data_iter = iter(train_light_loader)
+    step_time_ave = 0
     for step in range(iter_per_epoch):
         total_iter += 1
         # # training step 2
-        time_step1 = time.time()
+        step_start_time = time.time()
         random_type = random.randint(0,train_degrade_num-1)
         if random_type == 0:
             try:
@@ -227,15 +229,16 @@ for epoch in range(config['start_epoch'], config['epoch']):
         model.set_input(train_data)        
         model.optimize()     
             
-
+        step_time_ave += time.time() - step_start_time 
         if (step+1)%config['display_freq'] == 0:
             #print a sample result in checkpoints/model_name/samples
             loss = model.get_loss()
-            time_ave = (time.time() - time_step1)/config['display_freq']
-            display_loss(loss,epoch,config['epoch'],step,iter_per_epoch,time_ave)
+            step_time_ave = step_time_ave / config['display_freq']
+            display_loss(loss,epoch,config['epoch'],step,iter_per_epoch,step_time_ave)
+            step_time_ave = 0
 
             results = model.get_current_visuals()
-            utils.save_train_sample(config, step, results)
+            utils.save_train_sample(config, total_iter, results)
             
             for key, value in loss.items():
                 writer.add_scalar(key,value,iter_per_epoch*epoch+step)
@@ -243,7 +246,9 @@ for epoch in range(config['start_epoch'], config['epoch']):
 
         if total_iter % config['save_iter'] == 0:
             # model.save(total_iter)
-            print('End of Iteration [%d/%d] \t Time Taken: %d sec' % (total_iter, iter_per_epoch, time.time() - epoch_start_time))
+            iter_end_time = time.time()
+            print('End of Iteration [%d/%d] \t Time Taken: %d sec' % (total_iter, iter_per_epoch*config['epoch'], iter_end_time - iter_start_time))
+            iter_start_time = iter_end_time
         # paired_results = model.get_tensorboard_images()
         # writer.add_image('Pair/input', paired_results['input'],epoch)
         # writer.add_image('Pair/target', paired_results['target'],epoch)

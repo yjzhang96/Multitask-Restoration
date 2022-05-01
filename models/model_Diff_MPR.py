@@ -183,6 +183,9 @@ class RestoreNet():
             
         # calculate PSNR
         def PSNR(img1, img2):
+            if len(img2) >1:
+                print('Warning: restore img shape:%s, target img shape: %s'%(img2.shape, img1.shape))
+                img2 = img2[-1]
             MSE = self.MSE(img1,img2)
             return 10 * np.log10(1 / MSE.item())
 

@@ -66,9 +66,9 @@ os.makedirs(image_save_dir,exist_ok=True)
 
 # test
 ### initialize model
-if config['model_class'] == "MPRnet":
+if config['model_class'] == "MPRNet":
     Model = model_MPRnet
-if config['model_class'] == "Diff_MPR":
+elif config['model_class'] == "Diff_MPR":
     Model = model_Diff_MPR
 else:
     raise ValueError("Model class [%s] not recognized." % config['model_class'])

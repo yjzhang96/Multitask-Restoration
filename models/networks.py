@@ -483,7 +483,7 @@ class Block(nn.Module):
     def __init__(self, dim, dim_out, groups=32, dropout=0):
         super().__init__()
         self.block = nn.Sequential(
-            nn.GroupNorm(groups, dim),
+            # nn.GroupNorm(groups, dim),
             Swish(),
             nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
             nn.Conv2d(dim, dim_out, 3, padding=1)
@@ -505,7 +505,7 @@ class ResnetBlock(nn.Module):
             dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
     def forward(self, x, time_emb):
-        b, c, h, w = x.shape
+        # b, c, h, w = x.shape
         h = self.block1(x)
         h = self.noise_func(h, time_emb)
         h = self.block2(h)
@@ -596,7 +596,7 @@ class UNet(nn.Module):
                            kernel_size=3, padding=1)]
         for ind in range(num_mults):
             is_last = (ind == num_mults - 1)
-            use_attn = (now_res in attn_res)
+            use_attn = False
             channel_mult = inner_channel * channel_mults[ind]
             for _ in range(0, res_blocks):
                 downs.append(ResnetBlocWithAttn(
@@ -611,7 +611,7 @@ class UNet(nn.Module):
 
         self.mid = nn.ModuleList([
             ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
-                               dropout=dropout, with_attn=True),
+                               dropout=dropout, with_attn=False),
             ResnetBlocWithAttn(pre_channel, pre_channel, noise_level_emb_dim=noise_level_channel, norm_groups=norm_groups,
                                dropout=dropout, with_attn=False)
         ])
@@ -619,7 +619,7 @@ class UNet(nn.Module):
         ups = []
         for ind in reversed(range(num_mults)):
             is_last = (ind < 1)
-            use_attn = (now_res in attn_res)
+            use_attn = False
             channel_mult = inner_channel * channel_mults[ind]
             for _ in range(0, res_blocks+1):
                 ups.append(ResnetBlocWithAttn(
