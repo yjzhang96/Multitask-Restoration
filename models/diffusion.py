@@ -193,13 +193,14 @@ class GaussianDiffusion(nn.Module):
             x = x_in
             shape = x.shape
             img = torch.randn(shape, device=device)
-            ret_img = x
             x_restore = self.restore_fn(x_in, restore_step)[0]
+            condition_x = torch.cat([x_in, x_restore],dim=1)
+            ret_img = x_restore
             for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
-                img = self.p_sample(img, i, condition_x=torch.cat([x_in,x_restore],dim=1))
-                if i % sample_inter == 0:
+                img = self.p_sample(img, i, condition_x=condition_x)
+                # if i % sample_inter == 0:
                     # img = img
-                    ret_img = torch.cat([ret_img, x_restore + img], dim=0)
+            ret_img = torch.cat([ret_img, x_restore + img], dim=0)
         if continous:
             return ret_img
         else:
@@ -238,7 +239,7 @@ class GaussianDiffusion(nn.Module):
             x_restore = self.restore_fn(x_in, restore_step)[0]
             ret_img = x_restore
             # condition = torch.cat([x_in,x_restore],dim=1)
-            condition = x_in
+            condition = torch.cat([x_in, x_restore],dim=1)
             seq_next = [-1] + list(seq[:-1])
             n = x_in.size(0)
             for i, j in tqdm(zip(reversed(seq), reversed(seq_next)), desc='sampling loop time step', total=sample_steps):
@@ -255,10 +256,10 @@ class GaussianDiffusion(nn.Module):
                 # c1 = eta * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
                 # c2 = ((1 - at_next) - c1 ** 2).sqrt()
                 # xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x_in) + c2 * et
-                if i % sample_inter == 0:
-                    # img = img
-                    ret_img = torch.cat([ret_img, x_restore + xt_next], dim=0)
                 xt = xt_next
+                # if i % sample_inter == 0:
+                    # img = img
+            ret_img = torch.cat([ret_img, x_restore + xt_next], dim=0)
         if continous:
             return ret_img
         else:
@@ -309,7 +310,7 @@ class GaussianDiffusion(nn.Module):
             x_recon = self.denoise_fn(x_noisy, continuous_sqrt_alpha_cumprod)
         else:
             x_recon = self.denoise_fn(
-                torch.cat([input,  x_noisy], dim=1), continuous_sqrt_alpha_cumprod)
+                torch.cat([input, restore,  x_noisy], dim=1), continuous_sqrt_alpha_cumprod)
 
         loss = self.loss_func(noise, x_recon)
         return loss
