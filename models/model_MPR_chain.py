@@ -89,7 +89,7 @@ class RestoreNet():
         index = self.index
         output = self.input
         self.loss = 0.0
-        if index == 2 or index == 1:
+        if index[0] == 2 or index[0] == 1:
             restored_list = self.net_G(output, index)
             ## degrade type match index_now
             loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
@@ -97,7 +97,7 @@ class RestoreNet():
             loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
             self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
             self.loss += (self.loss_char) + (0.05*self.loss_edge)       
-        elif index == 0:
+        elif index[0] == 0:
             continous = random.random()
             if continous < 0.5:
                 pass    
