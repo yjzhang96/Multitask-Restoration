@@ -85,12 +85,13 @@ class RestoreNet():
         #     alter_index = random.randint(1,degrade_num-1)
         #     self.index = (self.index + alter_index)%degrade_num
         #     self.target = self.input
-        B = self.index.shape
-        index_now = torch.Tensor([degrade_num -1]).repeat(B).cuda()
+        
+        index_now = torch.Tensor([degrade_num -1]).cuda()
+        index_end = self.index[0]
         output = self.input
         self.loss = 0.0
-        while (index_now >= self.index):
-            if index_now == self.index:
+        while (index_now >= index_end):
+            if index_now == index_end:
                 restored_list = self.net_G(output, index_now)
                 ## degrade type match index_now
                 loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
@@ -98,7 +99,7 @@ class RestoreNet():
                 loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
                 self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
                 self.loss += (self.loss_char) + (0.05*self.loss_edge)       
-            elif index_now > self.index:
+            elif index_now > index_end:
                 ## degrade type do not match index_now
                 with torch.no_grad():
                     restored_list = self.net_G(output, index_now)
@@ -148,7 +149,7 @@ class RestoreNet():
             ret_output = self.input
             restore_step = self.index
     
-            index_now = torch.Tensor([self.degrade_num -1]).repeat(B).cuda()
+            index_now = torch.Tensor([self.degrade_num -1]).cuda()
             if multi_step:
                 while(index_now>=self.index):
                     print('degrade now:',index_now)

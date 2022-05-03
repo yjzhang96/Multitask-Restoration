@@ -372,6 +372,8 @@ class MPRNet_MH(nn.Module):
         self.tail     = conv(n_feat+scale_orsnetfeats, out_c, kernel_size, bias=bias)
 
     def forward(self, x3_img, index):
+        B,C,H,W = x3_img.shape
+        index = index.repeat(B)
         # degrade_type embedding
         if self.type_emb_mlp:
             index_emb = self.type_emb_mlp(index.float())
@@ -382,8 +384,8 @@ class MPRNet_MH(nn.Module):
         #     x3_img = F.interpolate(x3_img, scale_factor=(0.5,0.5),mode='bicubic')
         
         # Original-resolution Image for Stage 3
-        H = x3_img.size(2)
-        W = x3_img.size(3)
+        # H = x3_img.size(2)
+        # W = x3_img.size(3)
 
         # Multi-Patch Hierarchy: Split Image into four non-overlapping patches
 
