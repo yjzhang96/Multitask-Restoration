@@ -162,7 +162,7 @@ class RestoreNet():
                 return self.net_G.restore(
                     input, restore_step, continous)
 
-    def test(self, validation = False, multi_step = False, continous=False):
+    def test(self, validation = False, multi_step = False, continous=True):
         self.net_G.eval()
         with torch.no_grad():
             B,C,H,W = self.target.shape
@@ -185,14 +185,13 @@ class RestoreNet():
         def PSNR(img1, img2):
             if len(img2) >1:
                 print('Warning: restore img shape:%s, target img shape: %s'%(img2.shape, img1.shape))
-                img2 = img2[-1]
+                img2 = img2[0]
             MSE = self.MSE(img1,img2)
             return 10 * np.log10(1 / MSE.item())
 
         if validation:
             
-            sharp_psnr = 0
-            sharp_psnr += PSNR(self.target,self.restored) 
+            sharp_psnr = PSNR(self.target,self.restored) 
             return sharp_psnr
 
     def save(self,epoch):

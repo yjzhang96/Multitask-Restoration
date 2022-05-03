@@ -239,7 +239,7 @@ class GaussianDiffusion(nn.Module):
             x_restore = self.restore_fn(x_in, restore_step)[0]
             ret_img = x_restore
             # condition = torch.cat([x_in,x_restore],dim=1)
-            condition = torch.cat([x_in, x_restore],dim=1)
+            condition = x_in
             seq_next = [-1] + list(seq[:-1])
             n = x_in.size(0)
             for i, j in tqdm(zip(reversed(seq), reversed(seq_next)), desc='sampling loop time step', total=sample_steps):

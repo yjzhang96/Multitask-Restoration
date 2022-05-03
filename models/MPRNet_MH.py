@@ -105,7 +105,7 @@ class DALayer(nn.Module):
 ##########################################################################
 ## Channel Attention Block (CAB)
 class CAB(nn.Module):
-    def __init__(self, n_feat, kernel_size, reduction, bias, act, type_emb_dim=None, use_affine_level=True):
+    def __init__(self, n_feat, kernel_size, reduction, bias, act, type_emb_dim=None, degrade_num=None, use_affine_level=True):
         super(CAB, self).__init__()
         
         # if type_emb_dim:
@@ -117,7 +117,7 @@ class CAB(nn.Module):
         self.conv1 = conv(n_feat, n_feat, kernel_size, bias=bias)
         self.act1 = act
         if type_emb_dim:
-            self.DA = DALayer(n_feat, type_emb_dim, bias=bias)
+            self.DA = DALayer(n_feat, type_emb_dim, num_head=degrade_num, bias=bias)
             self.conv2 = None
         else:
             self.DA = None
@@ -158,12 +158,12 @@ class SAM(nn.Module):
 ## U-Net
 
 class Encoder(nn.Module):
-    def __init__(self, n_feat, kernel_size, reduction, act, bias, scale_unetfeats, csff, type_emb_dim=None):
+    def __init__(self, n_feat, kernel_size, reduction, act, bias, scale_unetfeats, csff, type_emb_dim=None, degrade_num=None):
         super(Encoder, self).__init__()
 
-        self.encoder_level1 = [CAB(n_feat,                     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
-        self.encoder_level2 = [CAB(n_feat+scale_unetfeats,     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
-        self.encoder_level3 = [CAB(n_feat+(scale_unetfeats*2), kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
+        self.encoder_level1 = [CAB(n_feat,                     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
+        self.encoder_level2 = [CAB(n_feat+scale_unetfeats,     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
+        self.encoder_level3 = [CAB(n_feat+(scale_unetfeats*2), kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
 
         self.encoder_level1 = nn.ModuleList(self.encoder_level1)
         self.encoder_level2 = nn.ModuleList(self.encoder_level2)
@@ -207,19 +207,19 @@ class Encoder(nn.Module):
         return [enc1, enc2, enc3]
 
 class Decoder(nn.Module):
-    def __init__(self, n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=None):
+    def __init__(self, n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=None, degrade_num=None):
         super(Decoder, self).__init__()
 
-        self.decoder_level1 = [CAB(n_feat,                     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
-        self.decoder_level2 = [CAB(n_feat+scale_unetfeats,     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
-        self.decoder_level3 = [CAB(n_feat+(scale_unetfeats*2), kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(2)]
+        self.decoder_level1 = [CAB(n_feat,                     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
+        self.decoder_level2 = [CAB(n_feat+scale_unetfeats,     kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
+        self.decoder_level3 = [CAB(n_feat+(scale_unetfeats*2), kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(2)]
 
         self.decoder_level1 = nn.ModuleList(self.decoder_level1)
         self.decoder_level2 = nn.ModuleList(self.decoder_level2)
         self.decoder_level3 = nn.ModuleList(self.decoder_level3)
 
-        self.skip_attn1 = CAB(n_feat,                 kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim)
-        self.skip_attn2 = CAB(n_feat+scale_unetfeats, kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim)
+        self.skip_attn1 = CAB(n_feat,                 kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num)
+        self.skip_attn2 = CAB(n_feat+scale_unetfeats, kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num)
 
         self.up21  = SkipUpSample(n_feat, scale_unetfeats)
         self.up32  = SkipUpSample(n_feat+scale_unetfeats, scale_unetfeats)
@@ -278,10 +278,10 @@ class SkipUpSample(nn.Module):
 ##########################################################################
 ## Original Resolution Block (ORB)
 class ORB(nn.Module):
-    def __init__(self, n_feat, kernel_size, reduction, act, bias, num_cab, type_emb_dim=None):
+    def __init__(self, n_feat, kernel_size, reduction, act, bias, num_cab, type_emb_dim=None, degrade_num=None):
         super(ORB, self).__init__()
         modules_body = []
-        modules_body = [CAB(n_feat, kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim) for _ in range(num_cab)]
+        modules_body = [CAB(n_feat, kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_dim, degrade_num=degrade_num) for _ in range(num_cab)]
         self.conv1 = conv(n_feat, n_feat, kernel_size)
         self.body = nn.ModuleList(modules_body)
 
@@ -295,12 +295,12 @@ class ORB(nn.Module):
 
 ##########################################################################
 class ORSNet(nn.Module):
-    def __init__(self, n_feat, scale_orsnetfeats, kernel_size, reduction, act, bias, scale_unetfeats, num_cab, type_emb_dim=None):
+    def __init__(self, n_feat, scale_orsnetfeats, kernel_size, reduction, act, bias, scale_unetfeats, num_cab, type_emb_dim=None, degrade_num=None):
         super(ORSNet, self).__init__()
 
-        self.orb1 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim)
-        self.orb2 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim)
-        self.orb3 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim)
+        self.orb1 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim, degrade_num=degrade_num)
+        self.orb2 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim, degrade_num=degrade_num)
+        self.orb3 = ORB(n_feat+scale_orsnetfeats, kernel_size, reduction, act, bias, num_cab, type_emb_dim=type_emb_dim, degrade_num=degrade_num)
 
         self.up_enc1 = UpSample(n_feat, scale_unetfeats)
         self.up_dec1 = UpSample(n_feat, scale_unetfeats)
@@ -335,6 +335,7 @@ class MPRNet_MH(nn.Module):
             scale_unetfeats=48, scale_orsnetfeats=32, num_cab=8, kernel_size=3, reduction=4, bias=False):
         super(MPRNet_MH, self).__init__()
 
+        self.degrade_num = degrade_num
         if use_type_emb:
             type_emb_channel = n_feat
             self.type_emb_mlp = nn.Sequential(
@@ -351,18 +352,18 @@ class MPRNet_MH(nn.Module):
         self.head_conv1 =  conv(in_c, n_feat, kernel_size, bias=bias)
         self.head_conv2 =  conv(in_c, n_feat, kernel_size, bias=bias)
         self.head_conv3 =  conv(in_c, n_feat, kernel_size, bias=bias)
-        self.shallow_feat1 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel)
-        self.shallow_feat2 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel)
-        self.shallow_feat3 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel)
+        self.shallow_feat1 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
+        self.shallow_feat2 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
+        self.shallow_feat3 = CAB(n_feat,kernel_size, reduction, bias=bias, act=act, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
 
         # Cross Stage Feature Fusion (CSFF)
-        self.stage1_encoder = Encoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, csff=False)
-        self.stage1_decoder = Decoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel)
+        self.stage1_encoder = Encoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, degrade_num=degrade_num, csff=False)
+        self.stage1_decoder = Decoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
 
-        self.stage2_encoder = Encoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, csff=True)
-        self.stage2_decoder = Decoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel)
+        self.stage2_encoder = Encoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, degrade_num=degrade_num, csff=True)
+        self.stage2_decoder = Decoder(n_feat, kernel_size, reduction, act, bias, scale_unetfeats, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
 
-        self.stage3_orsnet = ORSNet(n_feat, scale_orsnetfeats, kernel_size, reduction, act, bias, scale_unetfeats, num_cab, type_emb_dim=type_emb_channel)
+        self.stage3_orsnet = ORSNet(n_feat, scale_orsnetfeats, kernel_size, reduction, act, bias, scale_unetfeats, num_cab, type_emb_dim=type_emb_channel, degrade_num=degrade_num)
 
         self.sam12 = SAM(n_feat, kernel_size=1, bias=bias)
         self.sam23 = SAM(n_feat, kernel_size=1, bias=bias)
@@ -373,7 +374,7 @@ class MPRNet_MH(nn.Module):
 
     def forward(self, x3_img, index):
         B,C,H,W = x3_img.shape
-        index = index.repeat(B)
+        # index = index.repeat(B)
         # degrade_type embedding
         if self.type_emb_mlp:
             index_emb = self.type_emb_mlp(index.float())
