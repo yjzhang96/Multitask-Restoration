@@ -79,11 +79,11 @@ class CALayer(nn.Module):
 ##########################################################################
 ## Degradation Aware Layer
 class DALayer(nn.Module):
-    def __init__(self, channel, type_imb_dim, num_head=4, reduction=4, bias=False):
+    def __init__(self, channel, type_imb_dim, num_head=3, reduction=4, bias=False):
         super(DALayer, self).__init__()
         self.num_head = num_head
         ## multi-head featrue: channel -> num_head * channel
-        self.conv_mh = nn.Conv2d(channel, channel*4, 3, padding=1, bias=bias)
+        self.conv_mh = nn.Conv2d(channel, channel*num_head, 3, padding=1, bias=bias)
         self.conv_sig = nn.Sequential(
                 nn.Conv2d(type_imb_dim, type_imb_dim // reduction, 1, padding=0, bias=bias),
                 nn.ReLU(inplace=True),
@@ -377,6 +377,10 @@ class MPRNet_MH(nn.Module):
             index_emb = self.type_emb_mlp(index.float())
         else:
             index_emb = None
+        
+        # if index == 0: ## blur
+        #     x3_img = F.interpolate(x3_img, scale_factor=(0.5,0.5),mode='bicubic')
+        
         # Original-resolution Image for Stage 3
         H = x3_img.size(2)
         W = x3_img.size(3)
@@ -458,6 +462,10 @@ class MPRNet_MH(nn.Module):
         
         x3_cat = self.stage3_orsnet(x3_cat, feat2, res2, index_emb)
 
-        stage3_img = self.tail(x3_cat)
+        stage3_img = self.tail(x3_cat) + x3_img
 
-        return [stage3_img+x3_img, stage2_img, stage1_img]
+        # if index == 0:
+        #     stage3_img = F.interpolate(stage3_img, scale_factor=(2,2), mode='bicubic')
+        #     print('upsample blur imag')
+
+        return [stage3_img, stage2_img, stage1_img]

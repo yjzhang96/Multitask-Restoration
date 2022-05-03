@@ -18,7 +18,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 import data as Data
-from models import model_MPRnet, model_Diff_MPR
+from models import model_MPRnet, model_Diff_MPR, model_MPR_chain
 from utils import utils 
 from tensorboardX import SummaryWriter
 # torch.manual_seed(0)
@@ -54,13 +54,13 @@ if config['dataset_mode'] == 'pair':
             train_blur_set = Data.create_dataset(dataset_opt, phase, 'blur')
             train_blur_loader = Data.create_dataloader(
                 train_blur_set, dataset_opt, phase)
-            train_rain_set = Data.create_dataset(dataset_opt, phase, 'blur')
-            train_rain_loader = Data.create_dataloader(
-                train_rain_set, dataset_opt, phase)
-            train_noise_set = Data.create_dataset(dataset_opt, phase, 'blur')
+            # train_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
+            # train_rain_loader = Data.create_dataloader(
+            #     train_rain_set, dataset_opt, phase)
+            train_noise_set = Data.create_dataset(dataset_opt, phase, 'noise')
             train_noise_loader = Data.create_dataloader(
                 train_noise_set, dataset_opt, phase)
-            train_light_set = Data.create_dataset(dataset_opt, phase, 'blur')
+            train_light_set = Data.create_dataset(dataset_opt, phase, 'lowlight')
             train_light_loader = Data.create_dataloader(
                 train_light_set, dataset_opt, phase)
             train_degrade_num = dataset_opt['degrade_num']
@@ -68,9 +68,9 @@ if config['dataset_mode'] == 'pair':
             val_blur_set = Data.create_dataset(dataset_opt, phase, 'blur')
             val_blur_loader = Data.create_dataloader(
                 val_blur_set, dataset_opt, phase)
-            val_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
-            val_rain_loader = Data.create_dataloader(
-                val_rain_set, dataset_opt, phase)
+            # val_rain_set = Data.create_dataset(dataset_opt, phase, 'rain')
+            # val_rain_loader = Data.create_dataloader(
+            #     val_rain_set, dataset_opt, phase)
             val_noise_set = Data.create_dataset(dataset_opt, phase, 'noise')
             val_noise_loader = Data.create_dataloader(
                 val_noise_set, dataset_opt, phase)
@@ -98,7 +98,11 @@ if config['model_class'] == "MPRNet":
     Model = model_MPRnet
     os.system('cp %s %s'%('models/model_MPRnet.py', model_save_dir))
     os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
-if config['model_class'] == "Diff_MPR":
+elif config['model_class'] == "MPR_chain":
+    Model = model_MPR_chain
+    os.system('cp %s %s'%('models/model_MPR_chain.py', model_save_dir))
+    os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
+elif config['model_class'] == "Diff_MPR":
     Model = model_Diff_MPR
     os.system('cp %s %s'%('models/model_Diff_MPR.py', model_save_dir))
     os.system('cp models/%s.py %s'%(config['model']['g_name'], model_save_dir)) 
@@ -181,14 +185,14 @@ writer.add_scalar('PairPSNR/restore', val_restore_psnr, config['start_epoch'])
 results = model.get_current_visuals()
 utils.save_train_sample(config, 0, results)
 best_psnr = 0.0
-iter_per_epoch = max(len(train_blur_loader),len(train_rain_loader),len(train_noise_loader))
+iter_per_epoch = max(len(train_blur_loader),len(train_noise_loader))
 print('There is {:d} iteration in one epoch:'.format(iter_per_epoch))
 total_iter = config['start_epoch'] * iter_per_epoch
 iter_start_time = time.time()
 for epoch in range(config['start_epoch'], config['epoch']):
     epoch_start_time = time.time()
     blur_data_iter = iter(train_blur_loader)
-    rain_data_iter = iter(train_rain_loader)
+    # rain_data_iter = iter(train_rain_loader)
     noise_data_iter = iter(train_noise_loader)
     light_data_iter = iter(train_light_loader)
     step_time_ave = 0
@@ -203,20 +207,20 @@ for epoch in range(config['start_epoch'], config['epoch']):
             except:
                 blur_data_iter = iter(train_blur_loader)
                 continue
+        # elif random_type == 1:
+        #     try:
+        #         train_data = next(rain_data_iter)
+        #     except:
+        #         rain_data_iter = iter(train_rain_loader)
+        #         continue 
         elif random_type == 1:
-            try:
-                train_data = next(rain_data_iter)
-            except:
-                rain_data_iter = iter(train_rain_loader)
-                continue 
-        elif random_type == 2:
             try:
                 train_data = next(noise_data_iter) 
             except:
                 print("The end of noise data iterator")
                 noise_data_iter = iter(train_noise_loader)
                 continue
-        elif random_type == 3:
+        elif random_type == 2:
             try:
                 train_data = next(light_data_iter) 
             except:

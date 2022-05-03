@@ -59,6 +59,8 @@ class RestoreNet():
         self.criterion_char =losses.CharbonnierLoss()
         self.criterion_edge = losses.EdgeLoss()
 
+        self.degrade_num = self.config['model']['degrade_num'] 
+
         if config['is_training']:
             self.optimizer_G = torch.optim.Adam( self.net_G.parameters(), lr=config['train']['lr_G'], betas=(0.9, 0.999) )
             if config['resume_train']:
@@ -77,20 +79,37 @@ class RestoreNet():
 
     def optimize(self):
         degrade_num = self.config['model']['degrade_num']
-        restored_list = self.net_G(self.input, self.index)
 
-        alter_type = random.random()
-        if alter_type < 0.25:
-            alter_index = random.randint(1,degrade_num-1)
-            self.index = (self.index + alter_index)%degrade_num
-            self.target = self.input
+        # alter_type = random.random()
+        # if alter_type < 0.25:
+        #     alter_index = random.randint(1,degrade_num-1)
+        #     self.index = (self.index + alter_index)%degrade_num
+        #     self.target = self.input
+        B = self.index.shape
+        index_now = torch.Tensor([degrade_num -1]).repeat(B).cuda()
+        output = self.input
+        self.loss = 0.0
+        while (index_now >= self.index):
+            if index_now == self.index:
+                restored_list = self.net_G(output, index_now)
+                ## degrade type match index_now
+                loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
+                self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
+                loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
+                self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
+                self.loss += (self.loss_char) + (0.05*self.loss_edge)       
+            elif index_now > self.index:
+                ## degrade type do not match index_now
+                with torch.no_grad():
+                    restored_list = self.net_G(output, index_now)
+                # loss_char_j = [self.criterion_char(restored_list[j],self.input) for j in range(len(restored_list))]
+                # self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
+                # loss_edge_j = [self.criterion_edge(restored_list[j],self.input) for j in range(len(restored_list))]
+                # self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
+                # self.loss += 1 * ((self.loss_char) + (0.05*self.loss_edge))
+            index_now -= 1
+            output = restored_list[0]
 
-        loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
-        self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
-        loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
-        self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
-        self.loss = (self.loss_char) + (0.05*self.loss_edge)       
-        
         self.restored = restored_list[0]
         self.optimizer_G.zero_grad()
         self.loss.backward()
@@ -112,7 +131,7 @@ class RestoreNet():
             return index-1
         ## denoise then end
         if index == 2: 
-            return index-2
+            return index-1
         ## derain then denoise
         if index == 1:
             return index-1
@@ -121,24 +140,22 @@ class RestoreNet():
             return index-1
         
 
-    def test(self, validation = False, multi_step = False, continous=False):
+    def test(self, validation = False, multi_step = True, continous=True):
         with torch.no_grad():
             B,C,H,W = self.target.shape
             
             output = self.input
             ret_output = self.input
             restore_step = self.index
+    
+            index_now = torch.Tensor([self.degrade_num -1]).repeat(B).cuda()
             if multi_step:
-                num_step = 0
-                while(restore_step>=0):
-                    num_step += 1
-                    if num_step > 3:
-                        break
-                    print('degrade now:',restore_step)
-                    restore_list = self.net_G(output,restore_step)
+                while(index_now>=self.index):
+                    print('degrade now:',index_now)
+                    restore_list = self.net_G(output,index_now)
                     output = restore_list[0]
                     # restore_step -= 1
-                    restore_step = self.trans_func(restore_step)
+                    index_now = self.trans_func(index_now)
                     ret_output = torch.cat([ret_output, output],dim=0)
                 
                 if continous:

@@ -23,7 +23,7 @@ def create_dataloader(dataset, dataset_opt, phase):
                 pin_memory=True) 
     elif phase == 'val': 
         return torch.utils.data.DataLoader(
-            dataset, batch_size=1, shuffle=True, num_workers=1, pin_memory=True)
+            dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
     elif phase == 'test':
         return torch.utils.data.DataLoader(
             dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
