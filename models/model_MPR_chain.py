@@ -106,7 +106,7 @@ class RestoreNet():
             else:
                 ## degrade type do not match index_now
                 with torch.no_grad():
-                    index_noise = torch.Tensor([1]).repeat(B).cuda()
+                    index_noise = torch.IntTensor([1]).repeat(B).cuda()
                     restored_list = self.net_G(output, index=index_noise)
                     output = restored_list[0]
             restored_list = self.net_G(output, index)
@@ -120,7 +120,7 @@ class RestoreNet():
         self.restored = restored_list[0]
         self.optimizer_G.zero_grad()
         self.loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.net_G.parameters(), 0.01)
+        torch.nn.utils.clip_grad_norm_(self.net_G.parameters(), 0.02)
         self.optimizer_G.step()
 
     def get_loss(self):
@@ -158,7 +158,7 @@ class RestoreNet():
             # index_now = torch.Tensor([1]).cuda()
             index_now = self.index
             if multi_step:
-                while(index_now>=self.index):
+                while(index_now>=0):
                     print('degrade now:',index_now)
                     restore_list = self.net_G(output,index_now)
                     output = restore_list[0]

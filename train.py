@@ -200,8 +200,8 @@ for epoch in range(config['start_epoch'], config['epoch']):
         total_iter += 1
         # # training step 2
         step_start_time = time.time()
-        random_type = random.randint(0,train_degrade_num-1)
-        if random_type == 0:
+        random_type = random.random()
+        if random_type < 0.5:
             try:
                 train_data = next(blur_data_iter)
             except:
@@ -213,14 +213,14 @@ for epoch in range(config['start_epoch'], config['epoch']):
         #     except:
         #         rain_data_iter = iter(train_rain_loader)
         #         continue 
-        elif random_type == 1:
+        elif random_type >= 0.5 and random_type<0.75:
             try:
                 train_data = next(noise_data_iter) 
             except:
                 print("The end of noise data iterator")
                 noise_data_iter = iter(train_noise_loader)
                 continue
-        elif random_type == 2:
+        elif random_type >= 0.75:
             try:
                 train_data = next(light_data_iter) 
             except:

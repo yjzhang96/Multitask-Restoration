@@ -13,6 +13,7 @@ from .UNet_discriminator import UNetDiscriminator
 from .MPRNet import MPRNet
 from .MPRNet_MH import MPRNet_MH
 from .diffusion import GaussianDiffusion
+from .MPRNet_MH_DAlayer import MPRNet_MH_DAlayer
 
 def _get_orthogonal_init_weights(weights):
     fan_out = weights.size(0)
@@ -115,6 +116,11 @@ def define_net_G(config):
                             degrade_num = config['model']['degrade_num'],
                             use_type_emb = config['model']['use_type_emb']
                             )    
+    elif generator_name == 'MPRNet_MH_DAlayer':
+        model_g = MPRNet_MH_DAlayer(n_feat = config['model']['n_feat'],
+                            degrade_num = config['model']['degrade_num'],
+                            use_type_emb = config['model']['use_type_emb']
+                            )   
     else:
         raise ValueError("Generator Network [%s] not recognized." % generator_name)
     model_g = init_net(model_g,gpu_ids=config['gpu'])
