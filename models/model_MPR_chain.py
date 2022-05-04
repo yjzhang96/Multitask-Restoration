@@ -19,10 +19,12 @@ class RestoreNet():
         
         ## configure multi-process GPU
         if config['Distributed']:
+            print('dist rank:', torch.distributed.get_rank())
             local_rank = torch.distributed.get_rank()%len(config['gpu'])
             print('local rank:',local_rank)
             torch.cuda.set_device(local_rank)
             device = torch.device("cuda",local_rank)
+            setattr(self, 'local_rank', local_rank)
         else:
             if config['gpu']:
                 device = torch.device('cuda:{}'.format(config['gpu'][0]))
@@ -105,15 +107,14 @@ class RestoreNet():
                 ## degrade type do not match index_now
                 with torch.no_grad():
                     index_noise = torch.Tensor([1]).repeat(B).cuda()
-                    print('index noise:',index_noise)
                     restored_list = self.net_G(output, index=index_noise)
                     output = restored_list[0]
             restored_list = self.net_G(output, index)
-            loss_char_j = [self.criterion_char(restored_list[j],self.input) for j in range(len(restored_list))]
+            loss_char_j = [self.criterion_char(restored_list[j],self.target) for j in range(len(restored_list))]
             self.loss_char = loss_char_j[0] + loss_char_j[1] + loss_char_j[2]
-            loss_edge_j = [self.criterion_edge(restored_list[j],self.input) for j in range(len(restored_list))]
+            loss_edge_j = [self.criterion_edge(restored_list[j],self.target) for j in range(len(restored_list))]
             self.loss_edge = loss_edge_j[0] + loss_edge_j[1] + loss_edge_j[2]
-            self.loss += 1 * ((self.loss_char) + (0.05*self.loss_edge))
+            self.loss += (self.loss_char) + (0.05*self.loss_edge)
            
 
         self.restored = restored_list[0]
@@ -154,7 +155,8 @@ class RestoreNet():
             ret_output = self.input
             restore_step = self.index
     
-            index_now = torch.Tensor([1]).cuda()
+            # index_now = torch.Tensor([1]).cuda()
+            index_now = self.index
             if multi_step:
                 while(index_now>=self.index):
                     print('degrade now:',index_now)
@@ -189,7 +191,10 @@ class RestoreNet():
 
     def save(self,epoch):
         save_g_filename = 'G_net_%s.pth'%epoch
-        if len(self.config['gpu'])>1:
+        if self.config['Distributed']: 
+            if torch.distributed.get_rank() == 0:
+                torch.save(self.net_G.module.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
+        elif len(self.config['gpu'])>1:
             torch.save(self.net_G.module.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))
         else:
             torch.save(self.net_G.state_dict(),os.path.join(self.config['checkpoints'], self.config['model_name'],save_g_filename))

@@ -14,7 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 
 from utils import utils 
-from models import model_MPRnet, model_Diff_MPR
+from models import model_MPRnet, model_Diff_MPR, model_MPR_chain
 # from data import dataloader_pair, dataloader_pair_mix
 import data as Data
 parser = argparse.ArgumentParser()
@@ -70,6 +70,8 @@ if config['model_class'] == "MPRNet":
     Model = model_MPRnet
 elif config['model_class'] == "Diff_MPR":
     Model = model_Diff_MPR
+elif config['model_class'] == "MPR_chain":
+    Model = model_MPR_chain
 else:
     raise ValueError("Model class [%s] not recognized." % config['model_class'])
 

@@ -241,15 +241,19 @@ for epoch in range(config['start_epoch'], config['epoch']):
             display_loss(loss,epoch,config['epoch'],step,iter_per_epoch,step_time_ave)
             step_time_ave = 0
 
-            results = model.get_current_visuals()
-            utils.save_train_sample(config, total_iter, results)
-            
+            if not config['Distributed']:
+                results = model.get_current_visuals()
+                utils.save_train_sample(config, total_iter, results)
+            else:
+                if dist.get_rank() == 0:
+                    results = model.get_current_visuals()
+                    utils.save_train_sample(config, total_iter, results) 
             for key, value in loss.items():
                 writer.add_scalar(key,value,iter_per_epoch*epoch+step)
 
 
         if total_iter % config['save_iter'] == 0:
-            # model.save(total_iter)
+            model.save('latest')
             iter_end_time = time.time()
             print('End of Iteration [%d/%d] \t Time Taken: %d sec' % (total_iter, iter_per_epoch*config['epoch'], iter_end_time - iter_start_time))
             iter_start_time = iter_end_time
@@ -258,12 +262,11 @@ for epoch in range(config['start_epoch'], config['epoch']):
         # writer.add_image('Pair/target', paired_results['target'],epoch)
         # writer.add_image('Pair/restored', paired_results['restored'],epoch)
         
-
         if total_iter %config['val_freq'] == 0:
             val_restore_psnr  = validation_pair(total_iter)
             writer.add_scalar('PairPSNR/restore', val_restore_psnr, total_iter)
             results = model.get_current_visuals()
-            utils.save_train_sample(config, step, results)
+            utils.save_train_sample(config, total_iter, results)
 
             if val_restore_psnr > best_psnr:
                 best_psnr = val_restore_psnr
@@ -271,5 +274,4 @@ for epoch in range(config['start_epoch'], config['epoch']):
 
     # schedule learning rate
     model.schedule_lr(epoch,config['epoch'])
-    model.save('latest')
     print('End of epoch [%d/%d] \t Time Taken: %d sec' % (epoch, config['epoch'], time.time() - epoch_start_time))
